@@ -2,15 +2,37 @@ require("dotenv").config();
 
 const express = require("express");
 const line = require("@line/bot-sdk");
+const { createClient } = require("@supabase/supabase-js");
+
+const paymentInviteRoutes = require("./routes/paymentInvite");
 
 const app = express();
 
-const lineConfig = {
+const adminLineConfig = {
   channelAccessToken: process.env.LINE_ADMIN_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_ADMIN_CHANNEL_SECRET
 };
 
-const lineClient = new line.Client(lineConfig);
+const adminLineClient = new line.Client(adminLineConfig);
+
+const customerLineClient = new line.Client({
+  channelAccessToken: process.env.LINE_CUSTOMER_CHANNEL_ACCESS_TOKEN
+});
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+app.use(express.json());
+
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
+  next();
+});
 
 const EARLY_BIRD_LIMIT = 150;
 const EARLY_BIRD_PRICE = 3500;
@@ -20,16 +42,13 @@ app.get("/", (req, res) => {
   res.send("ADT BOTAdmin is running 🚀");
 });
 
-app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
+app.post("/webhook", line.middleware(adminLineConfig), async (req, res) => {
   try {
     const events = req.body.events || [];
 
     for (const event of events) {
       console.log("LINE EVENT:", JSON.stringify(event, null, 2));
-
-      if (event.source?.groupId && event.replyToken) {
-        console.log("GROUP ID:", event.source.groupId);
-      }
+      if (event.source?.groupId) console.log("GROUP ID:", event.source.groupId);
     }
 
     res.status(200).end();
@@ -39,7 +58,7 @@ app.post("/webhook", line.middleware(lineConfig), async (req, res) => {
   }
 });
 
-app.post("/api/report-register", express.json(), async (req, res) => {
+app.post("/api/report-register", async (req, res) => {
   try {
     const {
       booking_no,
@@ -69,8 +88,7 @@ app.post("/api/report-register", express.json(), async (req, res) => {
 
     const finalPrice = Number(price || (isEarlyBird ? EARLY_BIRD_PRICE : NORMAL_PRICE));
 
-    const reportText = isEarlyBird
-      ? `🎉 ADT PileFix | มีผู้จองสิทธิ์ใหม่
+    const reportText = `🎉 ADT PileFix | มีผู้จองสิทธิ์ใหม่
 
 ━━━━━━━━━━━━━━
 🆔 หมายเลขจอง: ${booking_no || "-"}
@@ -81,30 +99,13 @@ app.post("/api/report-register", express.json(), async (req, res) => {
 📧 Email: ${email || "-"}
 📘 Facebook: ${facebook_account || "-"}
 
-✅ สิทธิ์: EARLY BIRD
+${isEarlyBird ? "✅ สิทธิ์: EARLY BIRD" : "⚠️ สิทธิ์: ราคาปกติ"}
 💰 ราคา: ${finalPrice.toLocaleString()} บาท
-จากราคาเต็ม ${NORMAL_PRICE.toLocaleString()} บาท
-
-📌 สถานะ: REGISTERED
-⏳ รอทีม Admin ตรวจสอบ`
-      : `📢 ADT PileFix | มีผู้ลงทะเบียนใหม่
-
-━━━━━━━━━━━━━━
-🆔 หมายเลขจอง: ${booking_no || "-"}
-🎫 ลำดับจอง: #${queueNo}
-
-👤 ชื่อ: ${full_name || "-"}
-📞 โทร: ${phone || "-"}
-📧 Email: ${email || "-"}
-📘 Facebook: ${facebook_account || "-"}
-
-⚠️ Early Bird ครบ ${EARLY_BIRD_LIMIT} ท่านแล้ว
-💰 ราคาปกติ: ${finalPrice.toLocaleString()} บาท
 
 📌 สถานะ: REGISTERED
 ⏳ รอทีม Admin ตรวจสอบ`;
 
-    await lineClient.pushMessage(groupId, {
+    await adminLineClient.pushMessage(groupId, {
       type: "text",
       text: reportText
     });
@@ -122,6 +123,14 @@ app.post("/api/report-register", express.json(), async (req, res) => {
     });
   }
 });
+
+app.use(
+  "/api/payment-invite",
+  paymentInviteRoutes({
+    supabase,
+    customerLineClient
+  })
+);
 
 const PORT = process.env.PORT || 3000;
 
