@@ -1,0 +1,25 @@
+{
+  "name": "adt-botadmin",
+  "version": "1.0.0",
+  "description": "ADT Admin Bot for LINE Notification and Approval System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "ADT",
+    "LINE",
+    "BOT",
+    "Admin",
+    "Supabase"
+  ],
+  "author": "ADT Engineering",
+  "license": "ISC",
+  "dependencies": {
+    "@line/bot-sdk": "^9.7.0",
+    "@supabase/supabase-js": "^2.57.2",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
+  }
+}อ
