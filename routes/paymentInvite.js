@@ -9,7 +9,6 @@ function checkAdminKey(req) {
 
 function getDaysLeft(deadline) {
   if (!deadline) return null;
-
   const diff = new Date(deadline).getTime() - Date.now();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
@@ -44,22 +43,22 @@ module.exports = function paymentInviteRoutes({ supabase }) {
           early_bird_payment_deadline,
           payment_price
         `)
-        .eq("status", "REGISTERED")
-        .order("booking_order", { ascending: true });
+        .order("created_at", { ascending: true });
 
       if (error) throw error;
 
-      const now = Date.now();
-
       const items = (data || []).map((item) => ({
         ...item,
+        status: String(item.status || "").trim().toUpperCase(),
+        payment_status: String(item.payment_status || "").trim().toUpperCase(),
+        payment_invite_sent: item.payment_invite_sent === true,
         days_left: getDaysLeft(item.early_bird_payment_deadline)
       }));
 
       const summary = {
         not_sent: items.filter((item) =>
-          item.status === "REGISTERED" &&
-          (item.payment_status === "NOT_SENT" || !item.payment_status)
+          item.payment_status === "NOT_SENT" ||
+          item.payment_invite_sent === false
         ).length,
 
         sent_waiting: items.filter((item) =>
@@ -70,7 +69,7 @@ module.exports = function paymentInviteRoutes({ supabase }) {
         expired_7_days: items.filter((item) =>
           item.payment_invite_sent === true &&
           item.early_bird_payment_deadline &&
-          new Date(item.early_bird_payment_deadline).getTime() < now &&
+          new Date(item.early_bird_payment_deadline).getTime() < Date.now() &&
           item.payment_status !== "APPROVED"
         ).length
       };
