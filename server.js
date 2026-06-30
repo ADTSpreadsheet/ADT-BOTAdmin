@@ -74,10 +74,7 @@ app.post(
       const events = req.body.events || [];
 
       for (const event of events) {
-        console.log(
-          "LINE EVENT:",
-          JSON.stringify(event, null, 2)
-        );
+        console.log("LINE EVENT:", JSON.stringify(event, null, 2));
 
         if (event.source?.groupId) {
           console.log("GROUP ID:", event.source.groupId);
@@ -155,16 +152,13 @@ ${isEarlyBird ? "✅ สิทธิ์: EARLY BIRD" : "⚠️ สิทธิ�
       success: true,
       message: "Admin report sent"
     });
-
   } catch (err) {
-
     console.error("Report register error:", err);
 
     return res.status(500).json({
       success: false,
       message: "Cannot send admin report"
     });
-
   }
 });
 
@@ -175,7 +169,8 @@ ${isEarlyBird ? "✅ สิทธิ์: EARLY BIRD" : "⚠️ สิทธิ�
 app.use(
   "/api/payment-invite",
   paymentInviteRoutes({
-    supabase
+    supabase,
+    adminLineClient
   })
 );
 
