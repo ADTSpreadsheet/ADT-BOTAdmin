@@ -11,6 +11,12 @@ function getExt(filename = "") {
   return ext ? ext.toLowerCase() : "jpg";
 }
 
+function adminUrl(path, bookingNo) {
+  const base = "https://adt-botadmin.onrender.com";
+  const key = encodeURIComponent(process.env.ADMIN_SECRET_KEY || "");
+  return `${base}${path}?booking_no=${encodeURIComponent(bookingNo)}&key=${key}`;
+}
+
 function buildAdminFlex({ bookingNo, fullName, amount }) {
   return {
     type: "flex",
@@ -52,6 +58,49 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
             ]
           }
         ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            style: "secondary",
+            action: {
+              type: "uri",
+              label: "👁 ดูสลิป",
+              uri: adminUrl("/api/payment/view-slip", bookingNo)
+            }
+          },
+          {
+            type: "box",
+            layout: "horizontal",
+            spacing: "sm",
+            contents: [
+              {
+                type: "button",
+                style: "primary",
+                color: "#16A34A",
+                action: {
+                  type: "uri",
+                  label: "✅ AP",
+                  uri: adminUrl("/api/payment/approve", bookingNo)
+                }
+              },
+              {
+                type: "button",
+                style: "primary",
+                color: "#DC2626",
+                action: {
+                  type: "uri",
+                  label: "❌ RJ",
+                  uri: adminUrl("/api/payment/reject", bookingNo)
+                }
+              }
+            ]
+          }
+        ]
       }
     }
   };
@@ -60,23 +109,26 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
 module.exports = ({ supabase, adminLineClient }) => {
   const router = express.Router();
 
+  function checkAdminKey(req, res) {
+    const key = req.query.key;
+    if (!process.env.ADMIN_SECRET_KEY || key !== process.env.ADMIN_SECRET_KEY) {
+      res.status(403).send("FORBIDDEN");
+      return false;
+    }
+    return true;
+  }
+
   router.post("/submit-slip", upload.single("slip"), async (req, res) => {
     try {
       const bookingNo = String(req.body.booking_no || "").trim();
       const slipFile = req.file;
 
       if (!bookingNo) {
-        return res.status(400).json({
-          success: false,
-          message: "MISSING_BOOKING_NO"
-        });
+        return res.status(400).json({ success: false, message: "MISSING_BOOKING_NO" });
       }
 
       if (!slipFile) {
-        return res.status(400).json({
-          success: false,
-          message: "MISSING_SLIP_FILE"
-        });
+        return res.status(400).json({ success: false, message: "MISSING_SLIP_FILE" });
       }
 
       const ext = getExt(slipFile.originalname);
@@ -91,10 +143,7 @@ module.exports = ({ supabase, adminLineClient }) => {
 
       if (uploadError) {
         console.error("UPLOAD ERROR:", uploadError);
-        return res.status(500).json({
-          success: false,
-          message: "UPLOAD_SLIP_FAILED"
-        });
+        return res.status(500).json({ success: false, message: "UPLOAD_SLIP_FAILED" });
       }
 
       const { data: reservation, error: updateError } = await supabase
@@ -110,10 +159,7 @@ module.exports = ({ supabase, adminLineClient }) => {
 
       if (updateError) {
         console.error("UPDATE ERROR:", updateError);
-        return res.status(500).json({
-          success: false,
-          message: "UPDATE_RESERVATION_FAILED"
-        });
+        return res.status(500).json({ success: false, message: "UPDATE_RESERVATION_FAILED" });
       }
 
       res.status(200).json({
@@ -131,12 +177,96 @@ module.exports = ({ supabase, adminLineClient }) => {
       adminLineClient
         .pushMessage(process.env.LINE_ADMIN_GROUP_ID, flex)
         .catch((err) => console.error("LINE FLEX ERROR:", err));
+
     } catch (err) {
       console.error("SUBMIT SLIP ERROR:", err);
-      return res.status(500).json({
-        success: false,
-        message: "SERVER_ERROR"
-      });
+      return res.status(500).json({ success: false, message: "SERVER_ERROR" });
+    }
+  });
+
+  router.get("/view-slip", async (req, res) => {
+    try {
+      if (!checkAdminKey(req, res)) return;
+
+      const bookingNo = String(req.query.booking_no || "").trim();
+
+      const { data, error } = await supabase
+        .from("reservations")
+        .select("payment_slip_url")
+        .eq("booking_no", bookingNo)
+        .single();
+
+      if (error || !data?.payment_slip_url) {
+        return res.status(404).send("ไม่พบสลิป");
+      }
+
+      const { data: signed, error: signedError } = await supabase.storage
+        .from("payment-slips")
+        .createSignedUrl(data.payment_slip_url, 60 * 5);
+
+      if (signedError || !signed?.signedUrl) {
+        return res.status(500).send("สร้างลิงก์ดูสลิปไม่สำเร็จ");
+      }
+
+      return res.redirect(signed.signedUrl);
+
+    } catch (err) {
+      console.error("VIEW SLIP ERROR:", err);
+      return res.status(500).send("SERVER ERROR");
+    }
+  });
+
+  router.get("/approve", async (req, res) => {
+    try {
+      if (!checkAdminKey(req, res)) return;
+
+      const bookingNo = String(req.query.booking_no || "").trim();
+
+      const { error } = await supabase
+        .from("reservations")
+        .update({
+          payment_status: "APPROVED",
+          payment_approved_at: new Date().toISOString()
+        })
+        .eq("booking_no", bookingNo);
+
+      if (error) {
+        console.error("APPROVE ERROR:", error);
+        return res.status(500).send("อนุมัติไม่สำเร็จ");
+      }
+
+      return res.send(`✅ อนุมัติ ${bookingNo} สำเร็จแล้ว`);
+
+    } catch (err) {
+      console.error("APPROVE ERROR:", err);
+      return res.status(500).send("SERVER ERROR");
+    }
+  });
+
+  router.get("/reject", async (req, res) => {
+    try {
+      if (!checkAdminKey(req, res)) return;
+
+      const bookingNo = String(req.query.booking_no || "").trim();
+
+      const { error } = await supabase
+        .from("reservations")
+        .update({
+          payment_status: "REJECTED",
+          payment_rejected_at: new Date().toISOString()
+        })
+        .eq("booking_no", bookingNo);
+
+      if (error) {
+        console.error("REJECT ERROR:", error);
+        return res.status(500).send("รีเจคไม่สำเร็จ");
+      }
+
+      return res.send(`❌ รีเจค ${bookingNo} สำเร็จแล้ว`);
+
+    } catch (err) {
+      console.error("REJECT ERROR:", err);
+      return res.status(500).send("SERVER ERROR");
     }
   });
 
