@@ -62,7 +62,7 @@ module.exports = ({ supabase, adminLineClient }) => {
 
   router.post("/submit-slip", upload.single("slip"), async (req, res) => {
     try {
-      const bookingNo = req.body.booking_no;
+      const bookingNo = String(req.body.booking_no || "").trim();
       const slipFile = req.file;
 
       if (!bookingNo) {
