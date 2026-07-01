@@ -1,22 +1,9 @@
 const express = require("express");
 const multer = require("multer");
-const line = require("@line/bot-sdk");
-const { createClient } = require("@supabase/supabase-js");
-
-const router = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const adminLineClient = new line.Client({
-  channelAccessToken: process.env.LINE_ADMIN_CHANNEL_ACCESS_TOKEN
 });
 
 function getExt(filename = "") {
@@ -43,25 +30,15 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
             size: "lg",
             color: "#0B4DA2"
           },
-          {
-            type: "separator",
-            margin: "md"
-          },
+          { type: "separator", margin: "md" },
           {
             type: "box",
             layout: "vertical",
             spacing: "sm",
             margin: "md",
             contents: [
-              {
-                type: "text",
-                text: `Booking No: ${bookingNo}`,
-                weight: "bold"
-              },
-              {
-                type: "text",
-                text: `ชื่อ: ${fullName || "-"}`
-              },
+              { type: "text", text: `Booking No: ${bookingNo}`, weight: "bold" },
+              { type: "text", text: `ชื่อ: ${fullName || "-"}` },
               {
                 type: "text",
                 text: `ยอดชำระ: ${Number(amount || 3500).toLocaleString("th-TH")} บาท`
@@ -80,85 +57,88 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
   };
 }
 
-router.post("/submit-slip", upload.single("slip"), async (req, res) => {
-  try {
-    const bookingNo = req.body.booking_no;
-    const slipFile = req.file;
+module.exports = ({ supabase, adminLineClient }) => {
+  const router = express.Router();
 
-    if (!bookingNo) {
-      return res.status(400).json({
-        success: false,
-        message: "MISSING_BOOKING_NO"
+  router.post("/submit-slip", upload.single("slip"), async (req, res) => {
+    try {
+      const bookingNo = req.body.booking_no;
+      const slipFile = req.file;
+
+      if (!bookingNo) {
+        return res.status(400).json({
+          success: false,
+          message: "MISSING_BOOKING_NO"
+        });
+      }
+
+      if (!slipFile) {
+        return res.status(400).json({
+          success: false,
+          message: "MISSING_SLIP_FILE"
+        });
+      }
+
+      const ext = getExt(slipFile.originalname);
+      const filePath = `PAYSLIPS-${bookingNo}/PAYSLIPS-${bookingNo}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("payment-slips")
+        .upload(filePath, slipFile.buffer, {
+          contentType: slipFile.mimetype,
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error("UPLOAD ERROR:", uploadError);
+        return res.status(500).json({
+          success: false,
+          message: "UPLOAD_SLIP_FAILED"
+        });
+      }
+
+      const { data: reservation, error: updateError } = await supabase
+        .from("reservations")
+        .update({
+          payment_slip_url: filePath,
+          payment_submitted_at: new Date().toISOString(),
+          payment_status: "PAYMENT_REVIEW"
+        })
+        .eq("booking_no", bookingNo)
+        .select("booking_no, full_name, payment_price")
+        .single();
+
+      if (updateError) {
+        console.error("UPDATE ERROR:", updateError);
+        return res.status(500).json({
+          success: false,
+          message: "UPDATE_RESERVATION_FAILED"
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "PAYMENT_SUBMITTED",
+        redirect: "/payment-waiting.html"
       });
-    }
 
-    if (!slipFile) {
-      return res.status(400).json({
-        success: false,
-        message: "MISSING_SLIP_FILE"
-      });
-    }
-
-    const ext = getExt(slipFile.originalname);
-    const filePath = `PAYSLIPS-${bookingNo}/PAYSLIPS-${bookingNo}.${ext}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("payment-slips")
-      .upload(filePath, slipFile.buffer, {
-        contentType: slipFile.mimetype,
-        upsert: true
+      const flex = buildAdminFlex({
+        bookingNo: reservation.booking_no,
+        fullName: reservation.full_name,
+        amount: reservation.payment_price
       });
 
-    if (uploadError) {
-      console.error("UPLOAD ERROR:", uploadError);
+      adminLineClient
+        .pushMessage(process.env.LINE_ADMIN_GROUP_ID, flex)
+        .catch((err) => console.error("LINE FLEX ERROR:", err));
+    } catch (err) {
+      console.error("SUBMIT SLIP ERROR:", err);
       return res.status(500).json({
         success: false,
-        message: "UPLOAD_SLIP_FAILED"
+        message: "SERVER_ERROR"
       });
     }
+  });
 
-    const { data: reservation, error: updateError } = await supabase
-      .from("reservations")
-      .update({
-        payment_slip_url: filePath,
-        payment_submitted_at: new Date().toISOString(),
-        payment_status: "PAYMENT_REVIEW"
-      })
-      .eq("booking_no", bookingNo)
-      .select("booking_no, full_name, payment_price")
-      .single();
-
-    if (updateError) {
-      console.error("UPDATE ERROR:", updateError);
-      return res.status(500).json({
-        success: false,
-        message: "UPDATE_RESERVATION_FAILED"
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: "PAYMENT_SUBMITTED",
-      redirect: "/payment-waiting.html"
-    });
-
-    const flex = buildAdminFlex({
-      bookingNo: reservation.booking_no,
-      fullName: reservation.full_name,
-      amount: reservation.payment_price
-    });
-
-    adminLineClient
-      .pushMessage(process.env.LINE_ADMIN_GROUP_ID, flex)
-      .catch((err) => console.error("LINE FLEX ERROR:", err));
-
-  } catch (err) {
-    console.error("SUBMIT SLIP ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "SERVER_ERROR"
-    });
-  }
-});
-
-module.exports = router;
+  return router;
+};
