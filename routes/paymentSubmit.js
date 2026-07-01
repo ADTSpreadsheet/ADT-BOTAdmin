@@ -11,10 +11,18 @@ function getExt(filename = "") {
   return ext ? ext.toLowerCase() : "jpg";
 }
 
-function adminUrl(path, bookingNo) {
+function adminSlipUrl(bookingNo) {
   const base = "https://adt-botadmin.onrender.com";
   const key = encodeURIComponent(process.env.ADMIN_SECRET_KEY || "");
-  return `${base}${path}?booking_no=${encodeURIComponent(bookingNo)}&key=${key}`;
+
+  return `${base}/api/payment/view-slip?booking_no=${encodeURIComponent(bookingNo)}&key=${key}`;
+}
+
+function botApiUrl(action, bookingNo) {
+  const base = "https://adt-linebot-pilefix.onrender.com";
+  const key = encodeURIComponent(process.env.BOT_API_SECRET || "");
+
+  return `${base}/api/admin/payment-action?booking_no=${encodeURIComponent(bookingNo)}&action=${encodeURIComponent(action)}&key=${key}`;
 }
 
 function buildAdminFlex({ bookingNo, fullName, amount }) {
@@ -70,7 +78,7 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
             action: {
               type: "uri",
               label: "👁 ดูสลิป",
-              uri: adminUrl("/api/payment/view-slip", bookingNo)
+              uri: adminSlipUrl(bookingNo)
             }
           },
           {
@@ -85,7 +93,7 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
                 action: {
                   type: "uri",
                   label: "✅ AP",
-                  uri: adminUrl("/api/payment/approve", bookingNo)
+                  uri: botApiUrl("AP", bookingNo)
                 }
               },
               {
@@ -95,7 +103,7 @@ function buildAdminFlex({ bookingNo, fullName, amount }) {
                 action: {
                   type: "uri",
                   label: "❌ RJ",
-                  uri: adminUrl("/api/payment/reject", bookingNo)
+                  uri: botApiUrl("RJ", bookingNo)
                 }
               }
             ]
@@ -111,10 +119,12 @@ module.exports = ({ supabase, adminLineClient }) => {
 
   function checkAdminKey(req, res) {
     const key = req.query.key;
+
     if (!process.env.ADMIN_SECRET_KEY || key !== process.env.ADMIN_SECRET_KEY) {
       res.status(403).send("FORBIDDEN");
       return false;
     }
+
     return true;
   }
 
@@ -212,60 +222,6 @@ module.exports = ({ supabase, adminLineClient }) => {
 
     } catch (err) {
       console.error("VIEW SLIP ERROR:", err);
-      return res.status(500).send("SERVER ERROR");
-    }
-  });
-
-  router.get("/approve", async (req, res) => {
-    try {
-      if (!checkAdminKey(req, res)) return;
-
-      const bookingNo = String(req.query.booking_no || "").trim();
-
-      const { error } = await supabase
-        .from("reservations")
-        .update({
-          payment_status: "APPROVED",
-          payment_approved_at: new Date().toISOString()
-        })
-        .eq("booking_no", bookingNo);
-
-      if (error) {
-        console.error("APPROVE ERROR:", error);
-        return res.status(500).send("อนุมัติไม่สำเร็จ");
-      }
-
-      return res.send(`✅ อนุมัติ ${bookingNo} สำเร็จแล้ว`);
-
-    } catch (err) {
-      console.error("APPROVE ERROR:", err);
-      return res.status(500).send("SERVER ERROR");
-    }
-  });
-
-  router.get("/reject", async (req, res) => {
-    try {
-      if (!checkAdminKey(req, res)) return;
-
-      const bookingNo = String(req.query.booking_no || "").trim();
-
-      const { error } = await supabase
-        .from("reservations")
-        .update({
-          payment_status: "REJECTED",
-          payment_rejected_at: new Date().toISOString()
-        })
-        .eq("booking_no", bookingNo);
-
-      if (error) {
-        console.error("REJECT ERROR:", error);
-        return res.status(500).send("รีเจคไม่สำเร็จ");
-      }
-
-      return res.send(`❌ รีเจค ${bookingNo} สำเร็จแล้ว`);
-
-    } catch (err) {
-      console.error("REJECT ERROR:", err);
       return res.status(500).send("SERVER ERROR");
     }
   });
