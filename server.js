@@ -5,6 +5,7 @@ const line = require("@line/bot-sdk");
 const { createClient } = require("@supabase/supabase-js");
 
 const paymentInviteRoutes = require("./routes/paymentInvite");
+const paymentSubmitRoutes = require("./routes/paymentSubmit");
 
 const app = express();
 
@@ -169,6 +170,18 @@ ${isEarlyBird ? "✅ สิทธิ์: EARLY BIRD" : "⚠️ สิทธิ�
 app.use(
   "/api/payment-invite",
   paymentInviteRoutes({
+    supabase,
+    adminLineClient
+  })
+);
+
+/* ===========================
+   PAYMENT SUBMIT SLIP API
+=========================== */
+
+app.use(
+  "/api/payment",
+  paymentSubmitRoutes({
     supabase,
     adminLineClient
   })
