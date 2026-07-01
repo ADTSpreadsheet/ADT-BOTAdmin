@@ -7,10 +7,37 @@ function checkAdminKey(req) {
   return key && key === process.env.ADMIN_SECRET_KEY;
 }
 
+function normalize(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
 function getDaysLeft(deadline) {
   if (!deadline) return null;
+
   const diff = new Date(deadline).getTime() - Date.now();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function getDashboardStatus(item) {
+  const paymentStatus = normalize(item.payment_status);
+  const accountStatus = normalize(item.account_status);
+
+  if (accountStatus === "ACTIVE") return "ACTIVE";
+  if (paymentStatus === "APPROVED") return "APPROVED";
+  if (paymentStatus === "REJECTED") return "REJECTED";
+  if (paymentStatus === "PAYMENT_REVIEW") return "PAYMENT_REVIEW";
+
+  if (
+    item.payment_invite_sent === true &&
+    item.early_bird_payment_deadline &&
+    new Date(item.early_bird_payment_deadline).getTime() < Date.now()
+  ) {
+    return "EXPIRED";
+  }
+
+  if (item.payment_invite_sent === true) return "WAIT_PAYMENT";
+
+  return "NOT_SENT";
 }
 
 module.exports = function paymentInviteRoutes({ supabase }) {
@@ -37,40 +64,81 @@ module.exports = function paymentInviteRoutes({ supabase }) {
           early_bird,
           price,
           status,
+
           payment_status,
+          payment_price,
           payment_invite_sent,
           payment_invite_sent_at,
           early_bird_payment_deadline,
-          payment_price
+          payment_slip_url,
+          payment_submitted_at,
+          payment_approved_at,
+          payment_rejected_at,
+          payment_verified,
+          payment_verified_at,
+
+          username,
+          account_status,
+          account_created_at,
+          first_login,
+
+          activated_at,
+          license_status,
+          license_type,
+          last_login_at,
+          last_api_at
         `)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
 
-      const items = (data || []).map((item) => ({
-        ...item,
-        status: String(item.status || "").trim().toUpperCase(),
-        payment_status: String(item.payment_status || "").trim().toUpperCase(),
-        payment_invite_sent: item.payment_invite_sent === true,
-        days_left: getDaysLeft(item.early_bird_payment_deadline)
-      }));
+      const items = (data || []).map((item) => {
+        const normalizedItem = {
+          ...item,
+          status: normalize(item.status),
+          payment_status: normalize(item.payment_status),
+          account_status: normalize(item.account_status),
+          license_status: normalize(item.license_status),
+          payment_invite_sent: item.payment_invite_sent === true,
+          days_left: getDaysLeft(item.early_bird_payment_deadline)
+        };
+
+        return {
+          ...normalizedItem,
+          dashboard_status: getDashboardStatus(normalizedItem)
+        };
+      });
 
       const summary = {
+        total: items.length,
+
         not_sent: items.filter((item) =>
-          item.payment_status === "NOT_SENT" ||
-          item.payment_invite_sent === false
+          item.dashboard_status === "NOT_SENT"
         ).length,
 
-        sent_waiting: items.filter((item) =>
-          item.payment_invite_sent === true &&
-          item.payment_status !== "APPROVED"
+        wait_payment: items.filter((item) =>
+          item.dashboard_status === "WAIT_PAYMENT" ||
+          item.dashboard_status === "EXPIRED"
         ).length,
 
-        expired_7_days: items.filter((item) =>
-          item.payment_invite_sent === true &&
-          item.early_bird_payment_deadline &&
-          new Date(item.early_bird_payment_deadline).getTime() < Date.now() &&
-          item.payment_status !== "APPROVED"
+        payment_review: items.filter((item) =>
+          item.dashboard_status === "PAYMENT_REVIEW"
+        ).length,
+
+        approved: items.filter((item) =>
+          item.dashboard_status === "APPROVED"
+        ).length,
+
+        rejected: items.filter((item) =>
+          item.dashboard_status === "REJECTED"
+        ).length,
+
+        active: items.filter((item) =>
+          item.dashboard_status === "ACTIVE"
+        ).length,
+
+        expired: items.filter((item) =>
+          item.dashboard_status === "EXPIRED"
         ).length
       };
 
