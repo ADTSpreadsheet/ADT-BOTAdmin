@@ -134,11 +134,17 @@ module.exports = ({ supabase, adminLineClient }) => {
       const slipFile = req.file;
 
       if (!bookingNo) {
-        return res.status(400).json({ success: false, message: "MISSING_BOOKING_NO" });
+        return res.status(400).json({
+          success: false,
+          message: "MISSING_BOOKING_NO"
+        });
       }
 
       if (!slipFile) {
-        return res.status(400).json({ success: false, message: "MISSING_SLIP_FILE" });
+        return res.status(400).json({
+          success: false,
+          message: "MISSING_SLIP_FILE"
+        });
       }
 
       const ext = getExt(slipFile.originalname);
@@ -153,7 +159,10 @@ module.exports = ({ supabase, adminLineClient }) => {
 
       if (uploadError) {
         console.error("UPLOAD ERROR:", uploadError);
-        return res.status(500).json({ success: false, message: "UPLOAD_SLIP_FAILED" });
+        return res.status(500).json({
+          success: false,
+          message: "UPLOAD_SLIP_FAILED"
+        });
       }
 
       const { data: reservation, error: updateError } = await supabase
@@ -169,13 +178,19 @@ module.exports = ({ supabase, adminLineClient }) => {
 
       if (updateError) {
         console.error("UPDATE ERROR:", updateError);
-        return res.status(500).json({ success: false, message: "UPDATE_RESERVATION_FAILED" });
+        return res.status(500).json({
+          success: false,
+          message: "UPDATE_RESERVATION_FAILED"
+        });
       }
 
       res.status(200).json({
         success: true,
         message: "PAYMENT_SUBMITTED",
-        redirect: "/payment-waiting.html"
+        redirect:
+          `/payment-waiting.html?booking_no=${encodeURIComponent(
+            reservation.booking_no
+          )}`
       });
 
       const flex = buildAdminFlex({
@@ -190,7 +205,10 @@ module.exports = ({ supabase, adminLineClient }) => {
 
     } catch (err) {
       console.error("SUBMIT SLIP ERROR:", err);
-      return res.status(500).json({ success: false, message: "SERVER_ERROR" });
+      return res.status(500).json({
+        success: false,
+        message: "SERVER_ERROR"
+      });
     }
   });
 
