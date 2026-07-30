@@ -13,6 +13,9 @@ const paymentSubmitRoutes =
 const professionalNewsRoutes =
   require("./routes/professionalNews");
 
+const professionalReleaseRoutes =
+  require("./routes/professionalReleases");
+
 const app = express();
 
 /* ===========================
@@ -934,6 +937,21 @@ app.use(express.json());
 app.use(
   "/api/admin/professional",
   professionalNewsRoutes
+);
+
+/* ===========================
+   PROFESSIONAL RELEASE API
+
+   GET  /api/admin/professional/releases
+   POST /api/admin/professional/releases
+   POST /api/admin/professional/releases/upload
+=========================== */
+
+app.use(
+  "/api/admin/professional/releases",
+  professionalReleaseRoutes({
+    supabase
+  })
 );
 
 /* ===========================
