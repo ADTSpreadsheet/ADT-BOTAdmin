@@ -16,6 +16,9 @@ const professionalNewsRoutes =
 const professionalReleaseRoutes =
   require("./routes/professionalReleases");
 
+const professionalUpdateRoutes =
+  require("./routes/professionalUpdate");
+
 const app = express();
 
 /* ===========================
@@ -950,6 +953,20 @@ app.use(
 app.use(
   "/api/admin/professional/releases",
   professionalReleaseRoutes({
+    supabase
+  })
+);
+
+/* ===========================
+   PROFESSIONAL PUBLIC UPDATE API
+
+   GET  /api/professional/update/latest
+   POST /api/professional/update/download
+=========================== */
+
+app.use(
+  "/api/professional/update",
+  professionalUpdateRoutes({
     supabase
   })
 );
