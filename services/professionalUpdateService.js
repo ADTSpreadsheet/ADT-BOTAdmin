@@ -17,7 +17,7 @@
 */
 
 const RELEASE_TABLE = "professional_releases";
-const ACCOUNT_TABLE = "professional_accounts";
+const ACCOUNT_TABLE = "reservations";
 
 const STORAGE_BUCKET = "adt-software";
 const STATUS_PUBLISHED = "PUBLISHED";
@@ -26,9 +26,9 @@ const SIGNED_URL_EXPIRES_SECONDS = 300;
 /*
   Existing Professional account schema expected by this file:
 
-    professional_accounts.booking_no
-    professional_accounts.machine_id
-    professional_accounts.account_status
+    reservations.booking_no
+    reservations.device_id
+    reservations.account_status
 
   Allowed account statuses:
     ACTIVE
@@ -40,7 +40,7 @@ const SIGNED_URL_EXPIRES_SECONDS = 300;
 */
 
 const ACCOUNT_BOOKING_COLUMN = "booking_no";
-const ACCOUNT_MACHINE_COLUMN = "machine_id";
+const ACCOUNT_MACHINE_COLUMN = "device_id";
 const ACCOUNT_STATUS_COLUMN = "account_status";
 
 const ALLOWED_ACCOUNT_STATUS = new Set([
