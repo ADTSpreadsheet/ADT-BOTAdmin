@@ -1003,7 +1003,6 @@ function createProfessionalReleaseService({
   };
 }
 
-
 module.exports = {
   createProfessionalReleaseService,
 
@@ -1017,3 +1016,4 @@ module.exports = {
 
   MAX_FILE_SIZE_BYTES,
   XLSM_MIME_TYPE
+};
