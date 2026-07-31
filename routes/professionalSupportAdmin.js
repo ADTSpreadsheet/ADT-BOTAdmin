@@ -55,18 +55,15 @@ function buildSupportFlex({
   return {
     type: "flex",
     altText: lineText.slice(0, 390),
-
     contents: {
       type: "bubble",
       size: "mega",
-
       body: {
         type: "box",
         layout: "horizontal",
         alignItems: "center",
         spacing: "sm",
         paddingAll: "10px",
-
         contents: [
           messageBox,
           {
@@ -75,7 +72,6 @@ function buildSupportFlex({
             height: "sm",
             color: "#1357B8",
             flex: 2,
-
             action: {
               type: "postback",
               label: "ตอบ",
@@ -166,6 +162,9 @@ function professionalSupportAdminRoutes({
           attachment_url || ""
         ).trim();
 
+      const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
       if (!messageId) {
         return res.status(400).json({
           success: false,
@@ -174,11 +173,29 @@ function professionalSupportAdminRoutes({
         });
       }
 
+      if (!uuidPattern.test(messageId)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "message_id must be a valid UUID"
+        });
+      }
+
       if (!bookingNo) {
         return res.status(400).json({
           success: false,
           message:
             "booking_no is required"
+        });
+      }
+
+      if (
+        !/^PF-\d+$/i.test(bookingNo)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "booking_no format is invalid"
         });
       }
 
@@ -194,7 +211,10 @@ function professionalSupportAdminRoutes({
       }
 
       const groupId =
-        process.env.LINE_ADMIN_GROUP_ID;
+        String(
+          process.env.LINE_ADMIN_GROUP_ID ||
+          ""
+        ).trim();
 
       if (!groupId) {
         return res.status(500).json({
