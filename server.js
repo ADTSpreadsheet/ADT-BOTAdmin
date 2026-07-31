@@ -62,6 +62,48 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+const supportReplySessions = new Map();
+const SUPPORT_REPLY_TTL_MS =
+  30 * 60 * 1000;
+
+function setSupportReplySession(
+  adminUserId,
+  session
+) {
+  supportReplySessions.set(
+    adminUserId,
+    {
+      ...session,
+      expiresAt:
+        Date.now() + SUPPORT_REPLY_TTL_MS
+    }
+  );
+}
+
+function getSupportReplySession(
+  adminUserId
+) {
+  const session =
+    supportReplySessions.get(adminUserId);
+
+  if (!session) {
+    return null;
+  }
+
+  if (Date.now() > session.expiresAt) {
+    supportReplySessions.delete(adminUserId);
+    return null;
+  }
+
+  return session;
+}
+
+function clearSupportReplySession(
+  adminUserId
+) {
+  supportReplySessions.delete(adminUserId);
+}
+
 function isAllowedAdmin(userId) {
   const allowedAdminUserId =
     String(
@@ -786,30 +828,41 @@ app.post(
           event.type === "message" &&
           event.message?.type === "text"
         ) {
-          const adminText =
+          if (!userId) {
+            continue;
+          }
+
+          const session =
+            getSupportReplySession(userId);
+
+          if (!session) {
+            continue;
+          }
+
+          const replyText =
             String(
               event.message.text || ""
             ).trim();
 
-          const replyMatch =
-            adminText.match(
-              /^(PF-\d+)\s*:\s*(.+)$/i
-            );
-
-          if (!replyMatch) {
+          if (!replyText) {
             continue;
           }
 
-          const bookingNo =
-            String(replyMatch[1] || "")
-              .trim()
-              .toUpperCase();
+          if (
+            replyText.toLowerCase() ===
+            "cancel"
+          ) {
+            clearSupportReplySession(userId);
 
-          const replyText =
-            String(replyMatch[2] || "")
-              .trim();
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `ยกเลิกการตอบ ${session.bookingNo} แล้วครับ`
+              }
+            );
 
-          if (!bookingNo || !replyText) {
             continue;
           }
 
@@ -822,13 +875,8 @@ app.post(
               "id,reservation_id,booking_no," +
               "machine_id,program_version"
             )
-            .eq("booking_no", bookingNo)
-            .eq("sender_type", "USER")
-            .order("created_at", {
-              ascending: false
-            })
-            .limit(1)
-            .maybeSingle();
+            .eq("id", session.messageId)
+            .single();
 
           if (
             originalError ||
@@ -844,10 +892,11 @@ app.post(
               {
                 type: "text",
                 text:
-                  `❌ ไม่พบข้อความต้นทางของ ${bookingNo}`
+                  `❌ ไม่พบข้อความต้นทางของ ${session.bookingNo}`
               }
             );
 
+            clearSupportReplySession(userId);
             continue;
           }
 
@@ -885,7 +934,7 @@ app.post(
               {
                 type: "text",
                 text:
-                  `❌ บันทึกคำตอบของ ${bookingNo} ไม่สำเร็จ`
+                  `❌ บันทึกคำตอบของ ${session.bookingNo} ไม่สำเร็จ`
               }
             );
 
@@ -904,7 +953,7 @@ app.post(
               read_at:
                 new Date().toISOString()
             })
-            .eq("id", originalMessage.id);
+            .eq("id", session.messageId);
 
           if (updateOriginalError) {
             console.error(
@@ -913,12 +962,14 @@ app.post(
             );
           }
 
+          clearSupportReplySession(userId);
+
           await adminLineClient.replyMessage(
             event.replyToken,
             {
               type: "text",
               text:
-                `✅ ตอบ ${bookingNo} เรียบร้อยแล้ว`
+                `✅ ตอบ ${session.bookingNo} เรียบร้อยแล้ว`
             }
           );
 
@@ -939,7 +990,54 @@ app.post(
         const action =
           params.get("action");
 
-        if (action === "support_prefill") {
+        if (action === "support_reply") {
+          const messageId =
+            String(
+              params.get("message_id") || ""
+            ).trim();
+
+          const bookingNo =
+            String(
+              params.get("booking_no") || ""
+            )
+              .trim()
+              .toUpperCase();
+
+          if (
+            !userId ||
+            !messageId ||
+            !bookingNo
+          ) {
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  "❌ ข้อมูลสำหรับตอบกลับไม่ครบ"
+              }
+            );
+
+            continue;
+          }
+
+          setSupportReplySession(
+            userId,
+            {
+              messageId,
+              bookingNo
+            }
+          );
+
+          await adminLineClient.replyMessage(
+            event.replyToken,
+            {
+              type: "text",
+              text:
+                `กำลังตอบ ${bookingNo} : พิมพ์ข้อความได้เลย\n` +
+                `พิมพ์ cancel เพื่อยกเลิก`
+            }
+          );
+
           continue;
         }
 
