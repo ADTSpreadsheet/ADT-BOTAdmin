@@ -1,9 +1,5 @@
 const express = require("express");
 
-/* =========================================================
-   BUILD COMPACT SUPPORT FLEX
-========================================================= */
-
 function buildSupportFlex({
   messageId,
   bookingNo,
@@ -12,64 +8,55 @@ function buildSupportFlex({
   attachmentUrl
 }) {
   const displayName =
-    String(fullName || bookingNo || "ผู้ใช้งาน")
-      .trim();
+    String(fullName || bookingNo || "ผู้ใช้งาน").trim();
 
   const cleanMessage =
-    String(messageText || "")
-      .trim();
+    String(messageText || "").trim();
 
   const fileUrl =
-    String(attachmentUrl || "")
-      .trim();
+    String(attachmentUrl || "").trim();
 
   const hasAttachment =
     /^https?:\/\//i.test(fileUrl);
 
-  const messageComponent = {
+  const lineText =
+    `${displayName} : ${cleanMessage || "ส่งไฟล์แนบ"}` +
+    (hasAttachment ? " 📎" : "");
+
+  const replyData =
+    new URLSearchParams({
+      action: "support_reply",
+      message_id: String(messageId),
+      booking_no: String(bookingNo)
+    }).toString();
+
+  const closeData =
+    new URLSearchParams({
+      action: "support_close",
+      message_id: String(messageId),
+      booking_no: String(bookingNo)
+    }).toString();
+
+  const messageBox = {
     type: "text",
-    text:
-      `${displayName} : ${cleanMessage}` +
-      (hasAttachment ? " 📎" : ""),
+    text: lineText,
     size: "sm",
     color: "#222222",
     wrap: true,
-    flex: 7
+    flex: 8
   };
 
-  /*
-    ถ้ามีไฟล์แนบ:
-    กดที่ข้อความเพื่อเปิดไฟล์ใน LINE ได้
-  */
-
   if (hasAttachment) {
-    messageComponent.action = {
+    messageBox.action = {
       type: "uri",
       label: "เปิดไฟล์แนบ",
       uri: fileUrl
     };
   }
 
-  const replyPostback =
-    new URLSearchParams({
-      action: "support_reply",
-      message_id: messageId,
-      booking_no: bookingNo
-    }).toString();
-
-  const closePostback =
-    new URLSearchParams({
-      action: "support_close",
-      message_id: messageId,
-      booking_no: bookingNo
-    }).toString();
-
   return {
     type: "flex",
-
-    altText:
-      `${displayName} : ${cleanMessage}`
-        .slice(0, 390),
+    altText: lineText.slice(0, 390),
 
     contents: {
       type: "bubble",
@@ -83,8 +70,7 @@ function buildSupportFlex({
         paddingAll: "10px",
 
         contents: [
-          messageComponent,
-
+          messageBox,
           {
             type: "button",
             style: "primary",
@@ -95,10 +81,9 @@ function buildSupportFlex({
             action: {
               type: "postback",
               label: "ตอบ",
-              data: replyPostback
+              data: replyData
             }
           },
-
           {
             type: "button",
             style: "secondary",
@@ -108,7 +93,7 @@ function buildSupportFlex({
             action: {
               type: "postback",
               label: "ปิด",
-              data: closePostback
+              data: closeData
             }
           }
         ]
@@ -116,10 +101,6 @@ function buildSupportFlex({
     }
   };
 }
-
-/* =========================================================
-   ROUTER
-========================================================= */
 
 module.exports = function professionalSupportAdminRoutes({
   pushLineMessageWithRetry
@@ -133,10 +114,6 @@ module.exports = function professionalSupportAdminRoutes({
       "pushLineMessageWithRetry is required"
     );
   }
-
-  /* =======================================================
-     POST /send
-  ======================================================= */
 
   router.post("/send", async (req, res) => {
     try {
@@ -234,8 +211,7 @@ module.exports = function professionalSupportAdminRoutes({
           messageId,
           bookingNo,
           fullName,
-          messageText:
-            messageText || "ส่งไฟล์แนบ",
+          messageText,
           attachmentUrl
         });
 
