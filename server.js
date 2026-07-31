@@ -1,9 +1,3 @@
-ADT BOTAdmin Professional Support - Complete Code
-
-============================================================
-FILE 1: server.js
-============================================================
-
 require("dotenv").config();
 
 const express = require("express");
@@ -25,15 +19,10 @@ const professionalReleaseRoutes =
 const professionalUpdateRoutes =
   require("./routes/professionalUpdate");
 
-
 const professionalSupportAdminRoutes =
   require("./routes/professionalSupportAdmin");
 
 const app = express();
-
-/* ===========================
-   LINE BOT ADMIN
-=========================== */
 
 const adminLineConfig = {
   channelAccessToken:
@@ -58,10 +47,6 @@ if (!adminLineConfig.channelSecret) {
 const adminLineClient =
   new line.Client(adminLineConfig);
 
-/* ===========================
-   SUPABASE
-=========================== */
-
 if (!process.env.SUPABASE_URL) {
   throw new Error("Missing SUPABASE_URL");
 }
@@ -76,15 +61,6 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
-
-
-/* ===========================
-   PROFESSIONAL SUPPORT
-   ADMIN REPLY SESSION
-
-   เก็บชั่วคราวในหน่วยความจำ
-   หมดอายุภายใน 30 นาที
-=========================== */
 
 const supportReplySessions = new Map();
 const SUPPORT_REPLY_TTL_MS =
@@ -140,10 +116,6 @@ function isAllowedAdmin(userId) {
   );
 }
 
-/* ===========================
-   CORS MIDDLEWARE
-=========================== */
-
 app.use((req, res, next) => {
   res.setHeader(
     "Access-Control-Allow-Origin",
@@ -167,27 +139,15 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ===========================
-   CONSTANT
-=========================== */
-
 const EARLY_BIRD_LIMIT = 150;
 const EARLY_BIRD_PRICE = 3500;
 const NORMAL_PRICE = 4999;
-
-/* ===========================
-   HELPER : DELAY
-=========================== */
 
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
-
-/* ===========================
-   HELPER : LINE PUSH RETRY
-=========================== */
 
 async function pushLineMessageWithRetry(
   destinationId,
@@ -256,10 +216,6 @@ async function pushLineMessageWithRetry(
     )
   );
 }
-
-/* ===========================
-   HELPER : ANALYTICS
-=========================== */
 
 function getBangkokDate(offsetDays = 0) {
   const bangkokNow =
@@ -809,17 +765,9 @@ function buildAnalyticsFlex(summary) {
   };
 }
 
-/* ===========================
-   HOME
-=========================== */
-
 app.get("/", (req, res) => {
   res.send("ADT BOTAdmin is running 🚀");
 });
-
-/* ===========================
-   HEALTH CHECK
-=========================== */
 
 app.get("/health", (req, res) => {
   res.status(200).json({
@@ -828,12 +776,6 @@ app.get("/health", (req, res) => {
     time: new Date().toISOString()
   });
 });
-
-/* ===========================
-   LINE WEBHOOK
-
-   ต้องอยู่ก่อน express.json()
-=========================== */
 
 app.post(
   "/webhook",
@@ -881,10 +823,6 @@ app.post(
 
           continue;
         }
-
-        /* ===============================================
-           ADMIN TEXT REPLY
-        =============================================== */
 
         if (
           event.type === "message" &&
@@ -1029,10 +967,6 @@ app.post(
           continue;
         }
 
-        /* ===============================================
-           POSTBACK ACTION
-        =============================================== */
-
         if (event.type !== "postback") {
           continue;
         }
@@ -1046,10 +980,6 @@ app.post(
 
         const action =
           params.get("action");
-
-        /* ===============================================
-           SUPPORT: REPLY
-        =============================================== */
 
         if (action === "support_reply") {
           const messageId =
@@ -1101,10 +1031,6 @@ app.post(
 
           continue;
         }
-
-        /* ===============================================
-           SUPPORT: CLOSE
-        =============================================== */
 
         if (action === "support_close") {
           const messageId =
@@ -1179,10 +1105,6 @@ app.post(
 
           continue;
         }
-
-        /* ===============================================
-           ANALYTICS POSTBACK
-        =============================================== */
 
         const summaryDate =
           params.get("date");
@@ -1282,19 +1204,7 @@ app.post(
   }
 );
 
-/*
-  JSON Parser ต้องอยู่หลัง LINE Webhook
-  เพื่อไม่ให้ LINE Signature Verification เสีย
-*/
-
 app.use(express.json());
-
-/* ===========================
-   PROFESSIONAL SUPPORT ADMIN
-
-   POST
-   /api/admin/professional/support/send
-=========================== */
 
 app.use(
   "/api/admin/professional/support",
@@ -1304,27 +1214,10 @@ app.use(
   })
 );
 
-
-/* ===========================
-   PROFESSIONAL NEWS API
-
-   GET  /api/admin/professional/news
-   POST /api/admin/professional/news
-   GET  /api/admin/professional/display
-=========================== */
-
 app.use(
   "/api/admin/professional",
   professionalNewsRoutes
 );
-
-/* ===========================
-   PROFESSIONAL RELEASE API
-
-   GET  /api/admin/professional/releases
-   POST /api/admin/professional/releases
-   POST /api/admin/professional/releases/upload
-=========================== */
 
 app.use(
   "/api/admin/professional/releases",
@@ -1333,23 +1226,12 @@ app.use(
   })
 );
 
-/* ===========================
-   PROFESSIONAL PUBLIC UPDATE API
-
-   GET  /api/professional/update/latest
-   POST /api/professional/update/download
-=========================== */
-
 app.use(
   "/api/professional/update",
   professionalUpdateRoutes({
     supabase
   })
 );
-
-/* ===========================
-   ANALYTICS DAILY REPORT API
-=========================== */
 
 app.post(
   "/api/analytics-daily-report",
@@ -1393,11 +1275,6 @@ app.post(
           ? requestedDate
           : getBangkokDate(-1);
 
-      /*
-        สรุปข้อมูลของวันที่ต้องการ
-        ฟังก์ชันนี้ไม่ลบ Raw Data
-      */
-
       const {
         error: summarizeError
       } = await supabase.rpc(
@@ -1422,10 +1299,6 @@ app.post(
             summarizeError.message
         });
       }
-
-      /*
-        อ่านข้อมูลสรุปที่เพิ่งบันทึก
-      */
 
       const {
         data: summary,
@@ -1492,10 +1365,6 @@ app.post(
     }
   }
 );
-
-/* ===========================
-   REPORT REGISTER
-=========================== */
 
 app.post(
   "/api/report-register",
@@ -1622,10 +1491,6 @@ app.post(
   }
 );
 
-/* ===========================
-   PAYMENT INVITE API
-=========================== */
-
 app.use(
   "/api/payment-invite",
 
@@ -1634,10 +1499,6 @@ app.use(
     adminLineClient
   })
 );
-
-/* ===========================
-   PAYMENT SUBMIT SLIP API
-=========================== */
 
 app.use(
   "/api/payment",
@@ -1648,10 +1509,6 @@ app.use(
   })
 );
 
-/* ===========================
-   START SERVER
-=========================== */
-
 const PORT =
   process.env.PORT || 3000;
 
@@ -1660,288 +1517,3 @@ app.listen(PORT, () => {
     `ADT BOTAdmin running on port ${PORT}`
   );
 });
-
-============================================================
-FILE 2: routes/professionalSupportAdmin.js
-============================================================
-
-const express = require("express");
-
-/* =========================================================
-   BUILD COMPACT SUPPORT FLEX
-========================================================= */
-
-function buildSupportFlex({
-  messageId,
-  bookingNo,
-  fullName,
-  messageText,
-  attachmentUrl
-}) {
-  const displayName =
-    String(fullName || bookingNo || "ผู้ใช้งาน").trim();
-
-  const cleanMessage =
-    String(messageText || "").trim();
-
-  const fileUrl =
-    String(attachmentUrl || "").trim();
-
-  const hasAttachment =
-    /^https?:\/\//i.test(fileUrl);
-
-  const lineText =
-    `${displayName} : ${cleanMessage || "ส่งไฟล์แนบ"}` +
-    (hasAttachment ? " 📎" : "");
-
-  const replyData =
-    new URLSearchParams({
-      action: "support_reply",
-      message_id: String(messageId),
-      booking_no: String(bookingNo)
-    }).toString();
-
-  const closeData =
-    new URLSearchParams({
-      action: "support_close",
-      message_id: String(messageId),
-      booking_no: String(bookingNo)
-    }).toString();
-
-  const messageBox = {
-    type: "text",
-    text: lineText,
-    size: "sm",
-    color: "#222222",
-    wrap: true,
-    flex: 8
-  };
-
-  if (hasAttachment) {
-    messageBox.action = {
-      type: "uri",
-      label: "เปิดไฟล์แนบ",
-      uri: fileUrl
-    };
-  }
-
-  return {
-    type: "flex",
-    altText: lineText.slice(0, 390),
-
-    contents: {
-      type: "bubble",
-      size: "mega",
-
-      body: {
-        type: "box",
-        layout: "horizontal",
-        alignItems: "center",
-        spacing: "sm",
-        paddingAll: "10px",
-
-        contents: [
-          messageBox,
-          {
-            type: "button",
-            style: "primary",
-            height: "sm",
-            color: "#1357B8",
-            flex: 2,
-
-            action: {
-              type: "postback",
-              label: "ตอบ",
-              data: replyData
-            }
-          },
-          {
-            type: "button",
-            style: "secondary",
-            height: "sm",
-            flex: 2,
-
-            action: {
-              type: "postback",
-              label: "ปิด",
-              data: closeData
-            }
-          }
-        ]
-      }
-    }
-  };
-}
-
-/* =========================================================
-   ROUTER
-========================================================= */
-
-module.exports = function professionalSupportAdminRoutes({
-  pushLineMessageWithRetry
-}) {
-  const router = express.Router();
-
-  if (
-    typeof pushLineMessageWithRetry !== "function"
-  ) {
-    throw new Error(
-      "pushLineMessageWithRetry is required"
-    );
-  }
-
-  /* =======================================================
-     POST /send
-
-     Headers:
-       Content-Type: application/json
-       X-Admin-Secret: <PROFESSIONAL_SUPPORT_ADMIN_SECRET>
-  ======================================================= */
-
-  router.post("/send", async (req, res) => {
-    try {
-      const requestSecret =
-        String(
-          req.headers["x-admin-secret"] || ""
-        ).trim();
-
-      const expectedSecret =
-        String(
-          process.env
-            .PROFESSIONAL_SUPPORT_ADMIN_SECRET ||
-          ""
-        ).trim();
-
-      if (!expectedSecret) {
-        console.error(
-          "Missing PROFESSIONAL_SUPPORT_ADMIN_SECRET"
-        );
-
-        return res.status(500).json({
-          success: false,
-          message:
-            "Professional support secret is missing"
-        });
-      }
-
-      if (requestSecret !== expectedSecret) {
-        return res.status(403).json({
-          success: false,
-          message: "FORBIDDEN"
-        });
-      }
-
-      const {
-        message_id,
-        booking_no,
-        full_name,
-        message_text,
-        attachment_url
-      } = req.body || {};
-
-      const messageId =
-        String(message_id || "").trim();
-
-      const bookingNo =
-        String(booking_no || "")
-          .trim()
-          .toUpperCase();
-
-      const fullName =
-        String(full_name || "").trim();
-
-      const messageText =
-        String(message_text || "").trim();
-
-      const attachmentUrl =
-        String(attachment_url || "").trim();
-
-      if (!messageId) {
-        return res.status(400).json({
-          success: false,
-          message: "message_id is required"
-        });
-      }
-
-      if (!bookingNo) {
-        return res.status(400).json({
-          success: false,
-          message: "booking_no is required"
-        });
-      }
-
-      if (!messageText && !attachmentUrl) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "message_text or attachment_url is required"
-        });
-      }
-
-      const groupId =
-        process.env.LINE_ADMIN_GROUP_ID;
-
-      if (!groupId) {
-        return res.status(500).json({
-          success: false,
-          message:
-            "LINE_ADMIN_GROUP_ID is missing"
-        });
-      }
-
-      const flexMessage =
-        buildSupportFlex({
-          messageId,
-          bookingNo,
-          fullName,
-          messageText,
-          attachmentUrl
-        });
-
-      const pushResult =
-        await pushLineMessageWithRetry(
-          groupId,
-          flexMessage,
-          `support-${bookingNo}-${messageId}`
-        );
-
-      return res.status(200).json({
-        success: true,
-        message:
-          "Professional support notification sent",
-        data: {
-          message_id: messageId,
-          booking_no: bookingNo,
-          attempt: pushResult.attempt
-        }
-      });
-
-    } catch (error) {
-      const errorDetail =
-        error?.originalError
-          ?.response?.data ||
-        error?.message ||
-        error;
-
-      console.error(
-        "Professional support notify error:",
-        errorDetail
-      );
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Cannot notify professional support admin"
-      });
-    }
-  });
-
-  return router;
-};
-
-
-============================================================
-ENVIRONMENT VARIABLE
-============================================================
-
-PROFESSIONAL_SUPPORT_ADMIN_SECRET=change-this-to-a-long-random-secret
