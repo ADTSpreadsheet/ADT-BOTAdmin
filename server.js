@@ -1,3 +1,9 @@
+ADT BOTAdmin Professional Support - Complete Code
+
+============================================================
+FILE 1: server.js
+============================================================
+
 require("dotenv").config();
 
 const express = require("express");
@@ -18,6 +24,10 @@ const professionalReleaseRoutes =
 
 const professionalUpdateRoutes =
   require("./routes/professionalUpdate");
+
+
+const professionalSupportAdminRoutes =
+  require("./routes/professionalSupportAdmin");
 
 const app = express();
 
@@ -67,6 +77,69 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+
+/* ===========================
+   PROFESSIONAL SUPPORT
+   ADMIN REPLY SESSION
+
+   เก็บชั่วคราวในหน่วยความจำ
+   หมดอายุภายใน 30 นาที
+=========================== */
+
+const supportReplySessions = new Map();
+const SUPPORT_REPLY_TTL_MS =
+  30 * 60 * 1000;
+
+function setSupportReplySession(
+  adminUserId,
+  session
+) {
+  supportReplySessions.set(
+    adminUserId,
+    {
+      ...session,
+      expiresAt:
+        Date.now() + SUPPORT_REPLY_TTL_MS
+    }
+  );
+}
+
+function getSupportReplySession(
+  adminUserId
+) {
+  const session =
+    supportReplySessions.get(adminUserId);
+
+  if (!session) {
+    return null;
+  }
+
+  if (Date.now() > session.expiresAt) {
+    supportReplySessions.delete(adminUserId);
+    return null;
+  }
+
+  return session;
+}
+
+function clearSupportReplySession(
+  adminUserId
+) {
+  supportReplySessions.delete(adminUserId);
+}
+
+function isAllowedAdmin(userId) {
+  const allowedAdminUserId =
+    String(
+      process.env.LINE_ADMIN_USER_ID || ""
+    ).trim();
+
+  return (
+    !allowedAdminUserId ||
+    userId === allowedAdminUserId
+  );
+}
+
 /* ===========================
    CORS MIDDLEWARE
 =========================== */
@@ -84,7 +157,7 @@ app.use((req, res, next) => {
 
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type,X-Cron-Secret"
+    "Content-Type,X-Cron-Secret,X-Admin-Secret"
   );
 
   if (req.method === "OPTIONS") {
@@ -788,6 +861,178 @@ app.post(
           );
         }
 
+        const userId =
+          event.source?.userId;
+
+        if (
+          userId &&
+          !isAllowedAdmin(userId)
+        ) {
+          if (event.replyToken) {
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  "⛔ บัญชีนี้ไม่มีสิทธิ์ใช้งานระบบ Admin ครับ"
+              }
+            );
+          }
+
+          continue;
+        }
+
+        /* ===============================================
+           ADMIN TEXT REPLY
+        =============================================== */
+
+        if (
+          event.type === "message" &&
+          event.message?.type === "text"
+        ) {
+          if (!userId) {
+            continue;
+          }
+
+          const session =
+            getSupportReplySession(userId);
+
+          if (!session) {
+            continue;
+          }
+
+          const replyText =
+            String(
+              event.message.text || ""
+            ).trim();
+
+          if (!replyText) {
+            continue;
+          }
+
+          if (
+            replyText.toLowerCase() ===
+            "cancel"
+          ) {
+            clearSupportReplySession(userId);
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `ยกเลิกการตอบ ${session.bookingNo} แล้วครับ`
+              }
+            );
+
+            continue;
+          }
+
+          const {
+            data: originalMessage,
+            error: originalError
+          } = await supabase
+            .from("professional_user_messages")
+            .select(
+              "id,reservation_id,booking_no," +
+              "machine_id,program_version"
+            )
+            .eq("id", session.messageId)
+            .single();
+
+          if (
+            originalError ||
+            !originalMessage
+          ) {
+            console.error(
+              "Read original support message error:",
+              originalError
+            );
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `❌ ไม่พบข้อความต้นทางของ ${session.bookingNo}`
+              }
+            );
+
+            clearSupportReplySession(userId);
+            continue;
+          }
+
+          const {
+            error: insertReplyError
+          } = await supabase
+            .from(
+              "professional_user_messages"
+            )
+            .insert({
+              reservation_id:
+                originalMessage.reservation_id,
+              booking_no:
+                originalMessage.booking_no,
+              machine_id:
+                originalMessage.machine_id,
+              program_version:
+                originalMessage.program_version,
+              message_text:
+                replyText,
+              message_status:
+                "NEW",
+              sender_type:
+                "ADMIN"
+            });
+
+          if (insertReplyError) {
+            console.error(
+              "Insert admin reply error:",
+              insertReplyError
+            );
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `❌ บันทึกคำตอบของ ${session.bookingNo} ไม่สำเร็จ`
+              }
+            );
+
+            continue;
+          }
+
+          await supabase
+            .from(
+              "professional_user_messages"
+            )
+            .update({
+              message_status:
+                "ANSWERED",
+              read_at:
+                new Date().toISOString()
+            })
+            .eq("id", session.messageId);
+
+          clearSupportReplySession(userId);
+
+          await adminLineClient.replyMessage(
+            event.replyToken,
+            {
+              type: "text",
+              text:
+                `✅ ตอบ ${session.bookingNo} เรียบร้อยแล้ว`
+            }
+          );
+
+          continue;
+        }
+
+        /* ===============================================
+           POSTBACK ACTION
+        =============================================== */
+
         if (event.type !== "postback") {
           continue;
         }
@@ -802,30 +1047,145 @@ app.post(
         const action =
           params.get("action");
 
-        const summaryDate =
-          params.get("date");
+        /* ===============================================
+           SUPPORT: REPLY
+        =============================================== */
 
-        const userId =
-          event.source?.userId;
+        if (action === "support_reply") {
+          const messageId =
+            String(
+              params.get("message_id") || ""
+            ).trim();
 
-        const allowedAdminUserId =
-          process.env.LINE_ADMIN_USER_ID;
+          const bookingNo =
+            String(
+              params.get("booking_no") || ""
+            )
+              .trim()
+              .toUpperCase();
 
-        if (
-          allowedAdminUserId &&
-          userId !== allowedAdminUserId
-        ) {
+          if (
+            !userId ||
+            !messageId ||
+            !bookingNo
+          ) {
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  "❌ ข้อมูลสำหรับตอบกลับไม่ครบ"
+              }
+            );
+
+            continue;
+          }
+
+          setSupportReplySession(
+            userId,
+            {
+              messageId,
+              bookingNo
+            }
+          );
+
           await adminLineClient.replyMessage(
             event.replyToken,
             {
               type: "text",
               text:
-                "⛔ บัญชีนี้ไม่มีสิทธิ์ล้างข้อมูลครับ"
+                `กำลังตอบ ${bookingNo} : พิมพ์ข้อความได้เลย\n` +
+                `พิมพ์ cancel เพื่อยกเลิก`
             }
           );
 
           continue;
         }
+
+        /* ===============================================
+           SUPPORT: CLOSE
+        =============================================== */
+
+        if (action === "support_close") {
+          const messageId =
+            String(
+              params.get("message_id") || ""
+            ).trim();
+
+          const bookingNo =
+            String(
+              params.get("booking_no") || ""
+            )
+              .trim()
+              .toUpperCase();
+
+          if (!messageId || !bookingNo) {
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  "❌ ข้อมูลสำหรับปิดเรื่องไม่ครบ"
+              }
+            );
+
+            continue;
+          }
+
+          const {
+            error: closeError
+          } = await supabase
+            .from(
+              "professional_user_messages"
+            )
+            .update({
+              message_status:
+                "RESOLVED",
+              resolved_at:
+                new Date().toISOString()
+            })
+            .eq("id", messageId);
+
+          if (closeError) {
+            console.error(
+              "Close support message error:",
+              closeError
+            );
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `❌ ปิดเรื่อง ${bookingNo} ไม่สำเร็จ`
+              }
+            );
+
+            continue;
+          }
+
+          if (userId) {
+            clearSupportReplySession(userId);
+          }
+
+          await adminLineClient.replyMessage(
+            event.replyToken,
+            {
+              type: "text",
+              text:
+                `✅ ปิดเรื่อง ${bookingNo} เรียบร้อยแล้ว`
+            }
+          );
+
+          continue;
+        }
+
+        /* ===============================================
+           ANALYTICS POSTBACK
+        =============================================== */
+
+        const summaryDate =
+          params.get("date");
 
         if (
           !summaryDate ||
@@ -928,6 +1288,22 @@ app.post(
 */
 
 app.use(express.json());
+
+/* ===========================
+   PROFESSIONAL SUPPORT ADMIN
+
+   POST
+   /api/admin/professional/support/send
+=========================== */
+
+app.use(
+  "/api/admin/professional/support",
+
+  professionalSupportAdminRoutes({
+    pushLineMessageWithRetry
+  })
+);
+
 
 /* ===========================
    PROFESSIONAL NEWS API
@@ -1284,3 +1660,288 @@ app.listen(PORT, () => {
     `ADT BOTAdmin running on port ${PORT}`
   );
 });
+
+============================================================
+FILE 2: routes/professionalSupportAdmin.js
+============================================================
+
+const express = require("express");
+
+/* =========================================================
+   BUILD COMPACT SUPPORT FLEX
+========================================================= */
+
+function buildSupportFlex({
+  messageId,
+  bookingNo,
+  fullName,
+  messageText,
+  attachmentUrl
+}) {
+  const displayName =
+    String(fullName || bookingNo || "ผู้ใช้งาน").trim();
+
+  const cleanMessage =
+    String(messageText || "").trim();
+
+  const fileUrl =
+    String(attachmentUrl || "").trim();
+
+  const hasAttachment =
+    /^https?:\/\//i.test(fileUrl);
+
+  const lineText =
+    `${displayName} : ${cleanMessage || "ส่งไฟล์แนบ"}` +
+    (hasAttachment ? " 📎" : "");
+
+  const replyData =
+    new URLSearchParams({
+      action: "support_reply",
+      message_id: String(messageId),
+      booking_no: String(bookingNo)
+    }).toString();
+
+  const closeData =
+    new URLSearchParams({
+      action: "support_close",
+      message_id: String(messageId),
+      booking_no: String(bookingNo)
+    }).toString();
+
+  const messageBox = {
+    type: "text",
+    text: lineText,
+    size: "sm",
+    color: "#222222",
+    wrap: true,
+    flex: 8
+  };
+
+  if (hasAttachment) {
+    messageBox.action = {
+      type: "uri",
+      label: "เปิดไฟล์แนบ",
+      uri: fileUrl
+    };
+  }
+
+  return {
+    type: "flex",
+    altText: lineText.slice(0, 390),
+
+    contents: {
+      type: "bubble",
+      size: "mega",
+
+      body: {
+        type: "box",
+        layout: "horizontal",
+        alignItems: "center",
+        spacing: "sm",
+        paddingAll: "10px",
+
+        contents: [
+          messageBox,
+          {
+            type: "button",
+            style: "primary",
+            height: "sm",
+            color: "#1357B8",
+            flex: 2,
+
+            action: {
+              type: "postback",
+              label: "ตอบ",
+              data: replyData
+            }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            flex: 2,
+
+            action: {
+              type: "postback",
+              label: "ปิด",
+              data: closeData
+            }
+          }
+        ]
+      }
+    }
+  };
+}
+
+/* =========================================================
+   ROUTER
+========================================================= */
+
+module.exports = function professionalSupportAdminRoutes({
+  pushLineMessageWithRetry
+}) {
+  const router = express.Router();
+
+  if (
+    typeof pushLineMessageWithRetry !== "function"
+  ) {
+    throw new Error(
+      "pushLineMessageWithRetry is required"
+    );
+  }
+
+  /* =======================================================
+     POST /send
+
+     Headers:
+       Content-Type: application/json
+       X-Admin-Secret: <PROFESSIONAL_SUPPORT_ADMIN_SECRET>
+  ======================================================= */
+
+  router.post("/send", async (req, res) => {
+    try {
+      const requestSecret =
+        String(
+          req.headers["x-admin-secret"] || ""
+        ).trim();
+
+      const expectedSecret =
+        String(
+          process.env
+            .PROFESSIONAL_SUPPORT_ADMIN_SECRET ||
+          ""
+        ).trim();
+
+      if (!expectedSecret) {
+        console.error(
+          "Missing PROFESSIONAL_SUPPORT_ADMIN_SECRET"
+        );
+
+        return res.status(500).json({
+          success: false,
+          message:
+            "Professional support secret is missing"
+        });
+      }
+
+      if (requestSecret !== expectedSecret) {
+        return res.status(403).json({
+          success: false,
+          message: "FORBIDDEN"
+        });
+      }
+
+      const {
+        message_id,
+        booking_no,
+        full_name,
+        message_text,
+        attachment_url
+      } = req.body || {};
+
+      const messageId =
+        String(message_id || "").trim();
+
+      const bookingNo =
+        String(booking_no || "")
+          .trim()
+          .toUpperCase();
+
+      const fullName =
+        String(full_name || "").trim();
+
+      const messageText =
+        String(message_text || "").trim();
+
+      const attachmentUrl =
+        String(attachment_url || "").trim();
+
+      if (!messageId) {
+        return res.status(400).json({
+          success: false,
+          message: "message_id is required"
+        });
+      }
+
+      if (!bookingNo) {
+        return res.status(400).json({
+          success: false,
+          message: "booking_no is required"
+        });
+      }
+
+      if (!messageText && !attachmentUrl) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "message_text or attachment_url is required"
+        });
+      }
+
+      const groupId =
+        process.env.LINE_ADMIN_GROUP_ID;
+
+      if (!groupId) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "LINE_ADMIN_GROUP_ID is missing"
+        });
+      }
+
+      const flexMessage =
+        buildSupportFlex({
+          messageId,
+          bookingNo,
+          fullName,
+          messageText,
+          attachmentUrl
+        });
+
+      const pushResult =
+        await pushLineMessageWithRetry(
+          groupId,
+          flexMessage,
+          `support-${bookingNo}-${messageId}`
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Professional support notification sent",
+        data: {
+          message_id: messageId,
+          booking_no: bookingNo,
+          attempt: pushResult.attempt
+        }
+      });
+
+    } catch (error) {
+      const errorDetail =
+        error?.originalError
+          ?.response?.data ||
+        error?.message ||
+        error;
+
+      console.error(
+        "Professional support notify error:",
+        errorDetail
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Cannot notify professional support admin"
+      });
+    }
+  });
+
+  return router;
+};
+
+
+============================================================
+ENVIRONMENT VARIABLE
+============================================================
+
+PROFESSIONAL_SUPPORT_ADMIN_SECRET=change-this-to-a-long-random-secret
