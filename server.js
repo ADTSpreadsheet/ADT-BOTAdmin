@@ -62,48 +62,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-const supportReplySessions = new Map();
-const SUPPORT_REPLY_TTL_MS =
-  30 * 60 * 1000;
-
-function setSupportReplySession(
-  adminUserId,
-  session
-) {
-  supportReplySessions.set(
-    adminUserId,
-    {
-      ...session,
-      expiresAt:
-        Date.now() + SUPPORT_REPLY_TTL_MS
-    }
-  );
-}
-
-function getSupportReplySession(
-  adminUserId
-) {
-  const session =
-    supportReplySessions.get(adminUserId);
-
-  if (!session) {
-    return null;
-  }
-
-  if (Date.now() > session.expiresAt) {
-    supportReplySessions.delete(adminUserId);
-    return null;
-  }
-
-  return session;
-}
-
-function clearSupportReplySession(
-  adminUserId
-) {
-  supportReplySessions.delete(adminUserId);
-}
-
 function isAllowedAdmin(userId) {
   const allowedAdminUserId =
     String(
@@ -832,13 +790,6 @@ app.post(
             continue;
           }
 
-          const session =
-            getSupportReplySession(userId);
-
-          if (!session) {
-            continue;
-          }
-
           const replyText =
             String(
               event.message.text || ""
@@ -848,18 +799,90 @@ app.post(
             continue;
           }
 
+          const {
+            data: replyQueue,
+            error: queueReadError
+          } = await supabase
+            .from("admin_reply_queue")
+            .select(
+              "admin_user_id,group_id,message_id," +
+              "booking_no,created_at,expired_at"
+            )
+            .eq("admin_user_id", userId)
+            .maybeSingle();
+
+          if (queueReadError) {
+            console.error(
+              "Read admin reply queue error:",
+              queueReadError
+            );
+
+            continue;
+          }
+
+          if (!replyQueue) {
+            continue;
+          }
+
+          const expiredAt =
+            new Date(
+              replyQueue.expired_at
+            ).getTime();
+
           if (
-            replyText.toLowerCase() ===
-            "cancel"
+            !Number.isFinite(expiredAt) ||
+            Date.now() > expiredAt
           ) {
-            clearSupportReplySession(userId);
+            const {
+              error: expiredDeleteError
+            } = await supabase
+              .from("admin_reply_queue")
+              .delete()
+              .eq("admin_user_id", userId);
+
+            if (expiredDeleteError) {
+              console.error(
+                "Delete expired reply queue error:",
+                expiredDeleteError
+              );
+            }
 
             await adminLineClient.replyMessage(
               event.replyToken,
               {
                 type: "text",
                 text:
-                  `ยกเลิกการตอบ ${session.bookingNo} แล้วครับ`
+                  "⌛ รายการตอบกลับหมดอายุแล้ว กรุณากดปุ่มตอบอีกครั้งครับ"
+              }
+            );
+
+            continue;
+          }
+
+          if (
+            replyText.toLowerCase() ===
+            "cancel"
+          ) {
+            const {
+              error: cancelDeleteError
+            } = await supabase
+              .from("admin_reply_queue")
+              .delete()
+              .eq("admin_user_id", userId);
+
+            if (cancelDeleteError) {
+              console.error(
+                "Cancel reply queue error:",
+                cancelDeleteError
+              );
+            }
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `ยกเลิกการตอบ ${replyQueue.booking_no} แล้วครับ`
               }
             );
 
@@ -873,10 +896,15 @@ app.post(
             .from("professional_user_messages")
             .select(
               "id,reservation_id,booking_no," +
-              "machine_id,program_version"
+              "machine_id,program_version,sender_type"
             )
-            .eq("id", session.messageId)
-            .single();
+            .eq("id", replyQueue.message_id)
+            .eq(
+              "booking_no",
+              replyQueue.booking_no
+            )
+            .eq("sender_type", "USER")
+            .maybeSingle();
 
           if (
             originalError ||
@@ -892,13 +920,20 @@ app.post(
               {
                 type: "text",
                 text:
-                  `❌ ไม่พบข้อความต้นทางของ ${session.bookingNo}`
+                  `❌ ไม่พบข้อความต้นทางของ ${replyQueue.booking_no}`
               }
             );
 
-            clearSupportReplySession(userId);
+            await supabase
+              .from("admin_reply_queue")
+              .delete()
+              .eq("admin_user_id", userId);
+
             continue;
           }
+
+          const nowIso =
+            new Date().toISOString();
 
           const {
             error: insertReplyError
@@ -915,12 +950,14 @@ app.post(
                 originalMessage.machine_id,
               program_version:
                 originalMessage.program_version,
-              message_text:
+              message:
                 replyText,
               message_status:
                 "NEW",
               sender_type:
-                "ADMIN"
+                "ADMIN",
+              parent_message_id:
+                originalMessage.id
             });
 
           if (insertReplyError) {
@@ -934,7 +971,7 @@ app.post(
               {
                 type: "text",
                 text:
-                  `❌ บันทึกคำตอบของ ${session.bookingNo} ไม่สำเร็จ`
+                  `❌ บันทึกคำตอบของ ${replyQueue.booking_no} ไม่สำเร็จ`
               }
             );
 
@@ -951,9 +988,11 @@ app.post(
               message_status:
                 "ANSWERED",
               read_at:
-                new Date().toISOString()
+                nowIso,
+              resolved_at:
+                nowIso
             })
-            .eq("id", session.messageId);
+            .eq("id", originalMessage.id);
 
           if (updateOriginalError) {
             console.error(
@@ -962,14 +1001,26 @@ app.post(
             );
           }
 
-          clearSupportReplySession(userId);
+          const {
+            error: queueDeleteError
+          } = await supabase
+            .from("admin_reply_queue")
+            .delete()
+            .eq("admin_user_id", userId);
+
+          if (queueDeleteError) {
+            console.error(
+              "Delete admin reply queue error:",
+              queueDeleteError
+            );
+          }
 
           await adminLineClient.replyMessage(
             event.replyToken,
             {
               type: "text",
               text:
-                `✅ ตอบ ${session.bookingNo} เรียบร้อยแล้ว`
+                `✅ ตอบ ${replyQueue.booking_no} เรียบร้อยแล้ว`
             }
           );
 
@@ -1003,30 +1054,116 @@ app.post(
               .trim()
               .toUpperCase();
 
+          const groupId =
+            String(
+              event.source?.groupId || ""
+            ).trim();
+
+          const uuidPattern =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
           if (
             !userId ||
-            !messageId ||
-            !bookingNo
+            !uuidPattern.test(messageId) ||
+            !/^PF-\d+$/i.test(bookingNo)
           ) {
             await adminLineClient.replyMessage(
               event.replyToken,
               {
                 type: "text",
                 text:
-                  "❌ ข้อมูลสำหรับตอบกลับไม่ครบ"
+                  "❌ ข้อมูลสำหรับตอบกลับไม่ถูกต้อง"
               }
             );
 
             continue;
           }
 
-          setSupportReplySession(
-            userId,
-            {
-              messageId,
-              bookingNo
-            }
-          );
+          const {
+            data: originalMessage,
+            error: originalError
+          } = await supabase
+            .from("professional_user_messages")
+            .select(
+              "id,booking_no,sender_type"
+            )
+            .eq("id", messageId)
+            .eq("booking_no", bookingNo)
+            .eq("sender_type", "USER")
+            .maybeSingle();
+
+          if (
+            originalError ||
+            !originalMessage
+          ) {
+            console.error(
+              "Validate support message error:",
+              originalError
+            );
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `❌ ไม่พบข้อความต้นทางของ ${bookingNo}`
+              }
+            );
+
+            continue;
+          }
+
+          const now =
+            new Date();
+
+          const expiredAt =
+            new Date(
+              now.getTime() +
+              (30 * 60 * 1000)
+            );
+
+          const {
+            error: queueUpsertError
+          } = await supabase
+            .from("admin_reply_queue")
+            .upsert(
+              {
+                admin_user_id:
+                  userId,
+                group_id:
+                  groupId || null,
+                message_id:
+                  originalMessage.id,
+                booking_no:
+                  originalMessage.booking_no,
+                created_at:
+                  now.toISOString(),
+                expired_at:
+                  expiredAt.toISOString()
+              },
+              {
+                onConflict:
+                  "admin_user_id"
+              }
+            );
+
+          if (queueUpsertError) {
+            console.error(
+              "Save admin reply queue error:",
+              queueUpsertError
+            );
+
+            await adminLineClient.replyMessage(
+              event.replyToken,
+              {
+                type: "text",
+                text:
+                  `❌ เริ่มตอบ ${bookingNo} ไม่สำเร็จ`
+              }
+            );
+
+            continue;
+          }
 
           await adminLineClient.replyMessage(
             event.replyToken,
