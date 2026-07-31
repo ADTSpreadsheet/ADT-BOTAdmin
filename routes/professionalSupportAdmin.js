@@ -1,5 +1,17 @@
 const express = require("express");
 
+function formatBangkokDateTime(date = new Date()) {
+  return new Intl.DateTimeFormat("th-TH", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
 function buildSupportFlex({
   messageId,
   bookingNo,
@@ -23,9 +35,17 @@ function buildSupportFlex({
   const hasAttachment =
     /^https?:\/\//i.test(fileUrl);
 
-  const lineText =
-    `${displayName} : ` +
-    `${cleanMessage || "ส่งไฟล์แนบ"}` +
+  const sentAt =
+    formatBangkokDateTime();
+
+  const headerText =
+    `[${bookingNo}] ${sentAt}`;
+
+  const bodyText =
+    cleanMessage || "ส่งไฟล์แนบ";
+
+  const altText =
+    `${headerText} : ${bodyText}` +
     (hasAttachment ? " 📎" : "");
 
   const replyData =
@@ -36,25 +56,55 @@ function buildSupportFlex({
     }).toString();
 
   const messageBox = {
-    type: "text",
-    text: lineText,
-    size: "sm",
-    color: "#222222",
-    wrap: true,
-    flex: 9
+    type: "box",
+    layout: "vertical",
+    spacing: "xs",
+    flex: 9,
+    contents: [
+      {
+        type: "text",
+        text: headerText,
+        size: "sm",
+        weight: "bold",
+        color: "#1357B8",
+        wrap: true
+      },
+      {
+        type: "text",
+        text: bodyText,
+        size: "sm",
+        color: "#222222",
+        wrap: true
+      },
+      {
+        type: "text",
+        text: displayName,
+        size: "xs",
+        color: "#888888",
+        wrap: true
+      }
+    ]
   };
 
   if (hasAttachment) {
-    messageBox.action = {
-      type: "uri",
-      label: "เปิดไฟล์แนบ",
-      uri: fileUrl
-    };
+    messageBox.contents.push({
+      type: "text",
+      text: "📎 เปิดไฟล์แนบ",
+      size: "xs",
+      color: "#1357B8",
+      weight: "bold",
+      margin: "sm",
+      action: {
+        type: "uri",
+        label: "เปิดไฟล์แนบ",
+        uri: fileUrl
+      }
+    });
   }
 
   return {
     type: "flex",
-    altText: lineText.slice(0, 390),
+    altText: altText.slice(0, 390),
     contents: {
       type: "bubble",
       size: "mega",
