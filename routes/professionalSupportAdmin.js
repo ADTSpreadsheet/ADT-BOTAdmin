@@ -19,81 +19,81 @@ function buildSupportFlex({
   const hasAttachment =
     /^https?:\/\//i.test(fileUrl);
 
-  const lineText =
-    `${displayName} : ${cleanMessage || "ส่งไฟล์แนบ"}` +
-    (hasAttachment ? " 📎" : "");
-
-  const replyData =
-    new URLSearchParams({
-      action: "support_reply",
-      message_id: String(messageId),
-      booking_no: String(bookingNo)
-    }).toString();
-
-  const closeData =
-    new URLSearchParams({
-      action: "support_close",
-      message_id: String(messageId),
-      booking_no: String(bookingNo)
-    }).toString();
-
-  const messageBox = {
-    type: "text",
-    text: lineText,
-    size: "sm",
-    color: "#222222",
-    wrap: true,
-    flex: 8
-  };
+  const bodyContents = [
+    {
+      type: "text",
+      text: displayName,
+      size: "md",
+      weight: "bold",
+      color: "#111827",
+      wrap: true
+    },
+    {
+      type: "text",
+      text: bookingNo,
+      size: "xs",
+      color: "#2563EB",
+      margin: "xs"
+    },
+    {
+      type: "text",
+      text: cleanMessage || "ผู้ใช้งานส่งไฟล์แนบ",
+      size: "sm",
+      color: "#1F2937",
+      wrap: true,
+      margin: "md"
+    }
+  ];
 
   if (hasAttachment) {
-    messageBox.action = {
-      type: "uri",
-      label: "เปิดไฟล์แนบ",
-      uri: fileUrl
-    };
+    bodyContents.push({
+      type: "button",
+      style: "link",
+      height: "sm",
+      margin: "md",
+      action: {
+        type: "uri",
+        label: "เปิดไฟล์แนบ",
+        uri: fileUrl
+      }
+    });
   }
 
   return {
     type: "flex",
-    altText: lineText.slice(0, 390),
-
+    altText:
+      `${displayName}: ${cleanMessage || "ส่งไฟล์แนบ"}`.slice(
+        0,
+        390
+      ),
     contents: {
       type: "bubble",
-      size: "mega",
-
+      size: "kilo",
       body: {
         type: "box",
-        layout: "horizontal",
-        alignItems: "center",
-        spacing: "sm",
-        paddingAll: "10px",
-
+        layout: "vertical",
+        paddingAll: "16px",
+        contents: bodyContents
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
         contents: [
-          messageBox,
           {
             type: "button",
             style: "primary",
             height: "sm",
             color: "#1357B8",
-            flex: 2,
-
             action: {
               type: "postback",
-              label: "ตอบ",
-              data: replyData
-            }
-          },
-          {
-            type: "button",
-            style: "secondary",
-            height: "sm",
-            flex: 2,
-
-            action: {
-              type: "postback",
-              label: "ปิด",
-              data: closeData
+              label: "ตอบกลับ",
+              data:
+                `action=support_prefill` +
+                `&message_id=${encodeURIComponent(messageId)}` +
+                `&booking_no=${encodeURIComponent(bookingNo)}`,
+              inputOption: "openKeyboard",
+              fillInText: `${bookingNo} : `
             }
           }
         ]
