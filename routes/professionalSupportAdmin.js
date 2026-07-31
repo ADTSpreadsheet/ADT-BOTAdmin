@@ -8,7 +8,11 @@ function buildSupportFlex({
   attachmentUrl
 }) {
   const displayName =
-    String(fullName || bookingNo || "ผู้ใช้งาน").trim();
+    String(
+      fullName ||
+      bookingNo ||
+      "ผู้ใช้งาน"
+    ).trim();
 
   const cleanMessage =
     String(messageText || "").trim();
@@ -19,81 +23,63 @@ function buildSupportFlex({
   const hasAttachment =
     /^https?:\/\//i.test(fileUrl);
 
-  const bodyContents = [
-    {
-      type: "text",
-      text: displayName,
-      size: "md",
-      weight: "bold",
-      color: "#111827",
-      wrap: true
-    },
-    {
-      type: "text",
-      text: bookingNo,
-      size: "xs",
-      color: "#2563EB",
-      margin: "xs"
-    },
-    {
-      type: "text",
-      text: cleanMessage || "ผู้ใช้งานส่งไฟล์แนบ",
-      size: "sm",
-      color: "#1F2937",
-      wrap: true,
-      margin: "md"
-    }
-  ];
+  const lineText =
+    `${displayName} : ` +
+    `${cleanMessage || "ส่งไฟล์แนบ"}` +
+    (hasAttachment ? " 📎" : "");
+
+  const replyData =
+    new URLSearchParams({
+      action: "support_reply",
+      message_id: String(messageId),
+      booking_no: String(bookingNo)
+    }).toString();
+
+  const messageBox = {
+    type: "text",
+    text: lineText,
+    size: "sm",
+    color: "#222222",
+    wrap: true,
+    flex: 9
+  };
 
   if (hasAttachment) {
-    bodyContents.push({
-      type: "button",
-      style: "link",
-      height: "sm",
-      margin: "md",
-      action: {
-        type: "uri",
-        label: "เปิดไฟล์แนบ",
-        uri: fileUrl
-      }
-    });
+    messageBox.action = {
+      type: "uri",
+      label: "เปิดไฟล์แนบ",
+      uri: fileUrl
+    };
   }
 
   return {
     type: "flex",
-    altText:
-      `${displayName}: ${cleanMessage || "ส่งไฟล์แนบ"}`.slice(
-        0,
-        390
-      ),
+    altText: lineText.slice(0, 390),
+
     contents: {
       type: "bubble",
-      size: "kilo",
+      size: "mega",
+
       body: {
         type: "box",
-        layout: "vertical",
-        paddingAll: "16px",
-        contents: bodyContents
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "12px",
+        layout: "horizontal",
+        alignItems: "center",
+        spacing: "sm",
+        paddingAll: "10px",
+
         contents: [
+          messageBox,
           {
             type: "button",
             style: "primary",
             height: "sm",
             color: "#1357B8",
+            flex: 2,
+
             action: {
               type: "postback",
-              label: "ตอบกลับ",
-              data:
-                `action=support_prefill` +
-                `&message_id=${encodeURIComponent(messageId)}` +
-                `&booking_no=${encodeURIComponent(bookingNo)}`,
-              inputOption: "openKeyboard",
-              fillInText: `${bookingNo} : `
+              label: "ตอบ",
+              data: replyData
             }
           }
         ]
@@ -102,13 +88,15 @@ function buildSupportFlex({
   };
 }
 
-module.exports = function professionalSupportAdminRoutes({
+module.exports =
+function professionalSupportAdminRoutes({
   pushLineMessageWithRetry
 }) {
   const router = express.Router();
 
   if (
-    typeof pushLineMessageWithRetry !== "function"
+    typeof pushLineMessageWithRetry !==
+    "function"
   ) {
     throw new Error(
       "pushLineMessageWithRetry is required"
@@ -119,7 +107,8 @@ module.exports = function professionalSupportAdminRoutes({
     try {
       const requestSecret =
         String(
-          req.headers["x-admin-secret"] || ""
+          req.headers["x-admin-secret"] ||
+          ""
         ).trim();
 
       const expectedSecret =
@@ -141,7 +130,9 @@ module.exports = function professionalSupportAdminRoutes({
         });
       }
 
-      if (requestSecret !== expectedSecret) {
+      if (
+        requestSecret !== expectedSecret
+      ) {
         return res.status(403).json({
           success: false,
           message: "FORBIDDEN"
@@ -171,23 +162,30 @@ module.exports = function professionalSupportAdminRoutes({
         String(message_text || "").trim();
 
       const attachmentUrl =
-        String(attachment_url || "").trim();
+        String(
+          attachment_url || ""
+        ).trim();
 
       if (!messageId) {
         return res.status(400).json({
           success: false,
-          message: "message_id is required"
+          message:
+            "message_id is required"
         });
       }
 
       if (!bookingNo) {
         return res.status(400).json({
           success: false,
-          message: "booking_no is required"
+          message:
+            "booking_no is required"
         });
       }
 
-      if (!messageText && !attachmentUrl) {
+      if (
+        !messageText &&
+        !attachmentUrl
+      ) {
         return res.status(400).json({
           success: false,
           message:
