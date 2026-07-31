@@ -39,13 +39,13 @@ function buildSupportFlex({
     formatBangkokDateTime();
 
   const headerText =
-    `[${bookingNo}] ${sentAt}`;
+    `${displayName} ${sentAt}`;
 
   const bodyText =
     cleanMessage || "ส่งไฟล์แนบ";
 
   const altText =
-    `${headerText} : ${bodyText}` +
+    `${displayName} : ${bodyText}` +
     (hasAttachment ? " 📎" : "");
 
   const replyData =
@@ -78,7 +78,7 @@ function buildSupportFlex({
       },
       {
         type: "text",
-        text: displayName,
+        text: bookingNo,
         size: "xs",
         color: "#888888",
         wrap: true
