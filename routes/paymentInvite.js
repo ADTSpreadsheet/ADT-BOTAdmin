@@ -2,82 +2,140 @@ const express = require("express");
 
 const router = express.Router();
 
+const JACKET_FIRST_ORDER = 1;
+const JACKET_LAST_ORDER = 50;
+
 function checkAdminKey(req) {
-  const key = req.query.key || req.body?.key;
-  return key && key === process.env.ADMIN_SECRET_KEY;
+  const key =
+    req.query.key ||
+    req.body?.key;
+
+  return (
+    key &&
+    process.env.ADMIN_SECRET_KEY &&
+    key === process.env.ADMIN_SECRET_KEY
+  );
 }
 
 function normalize(value) {
-  return String(value || "").trim().toUpperCase();
+  return String(value || "")
+    .trim()
+    .toUpperCase();
 }
 
 function getDaysLeft(deadline) {
   if (!deadline) return null;
 
-  const diff = new Date(deadline).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const diff =
+    new Date(deadline).getTime() -
+    Date.now();
+
+  return Math.ceil(
+    diff / (1000 * 60 * 60 * 24)
+  );
 }
 
 function getDashboardStatus(item) {
-  const paymentStatus = normalize(item.payment_status);
-  const accountStatus = normalize(item.account_status);
+  const paymentStatus =
+    normalize(item.payment_status);
 
-  if (accountStatus === "ACTIVE") return "ACTIVE";
-  if (paymentStatus === "APPROVED") return "APPROVED";
-  if (paymentStatus === "REJECTED") return "REJECTED";
-  if (paymentStatus === "PAYMENT_REVIEW") return "PAYMENT_REVIEW";
+  const accountStatus =
+    normalize(item.account_status);
+
+  if (accountStatus === "ACTIVE") {
+    return "ACTIVE";
+  }
+
+  if (paymentStatus === "APPROVED") {
+    return "APPROVED";
+  }
+
+  if (paymentStatus === "REJECTED") {
+    return "REJECTED";
+  }
+
+  if (paymentStatus === "PAYMENT_REVIEW") {
+    return "PAYMENT_REVIEW";
+  }
 
   if (
     item.payment_invite_sent === true &&
     item.early_bird_payment_deadline &&
-    new Date(item.early_bird_payment_deadline).getTime() < Date.now()
+    new Date(
+      item.early_bird_payment_deadline
+    ).getTime() < Date.now()
   ) {
     return "EXPIRED";
   }
 
-  if (item.payment_invite_sent === true) return "WAIT_PAYMENT";
+  if (item.payment_invite_sent === true) {
+    return "WAIT_PAYMENT";
+  }
 
   return "NOT_SENT";
 }
 
-/**
- * สถานะหลังชำระเงิน
- *
- * NOT_APPLICABLE
- *   = ยังไม่ได้อนุมัติการชำระเงิน
- *
- * WAIT_JACKET_SELECTION
- *   = ชำระแล้ว อยู่ในสิทธิ์ 1-50 แต่ยังไม่มีข้อมูลใน jacket_orders
- *
- * DOWNLOAD_PENDING
- *   = บันทึกข้อมูลเสื้อแล้ว แต่ยังไม่มีผลการส่งลิงก์
- *
- * DOWNLOAD_FAILED
- *   = บันทึกข้อมูลเสื้อแล้ว แต่ส่งลิงก์ LINE ไม่สำเร็จ
- *
- * DOWNLOAD_SENT
- *   = ส่งลิงก์ดาวน์โหลดทาง LINE สำเร็จแล้ว
- *
- * NO_JACKET_REQUIRED
- *   = ชำระแล้ว แต่ไม่อยู่ในสิทธิ์เสื้อ 1-50
- */
+/*
+|--------------------------------------------------------------------------
+| สถานะหลังชำระเงิน
+|--------------------------------------------------------------------------
+|
+| NOT_APPLICABLE
+|   ยังไม่ได้รับอนุมัติการชำระเงิน
+|
+| WAIT_JACKET_SELECTION
+|   ชำระแล้ว และ payment_order อยู่ลำดับ 1–50
+|   แต่ยังไม่มีข้อมูลใน jacket_orders
+|
+| DOWNLOAD_PENDING
+|   มีข้อมูลเสื้อแล้ว แต่สถานะส่งลิงก์ยังเป็น PENDING
+|
+| DOWNLOAD_FAILED
+|   มีข้อมูลเสื้อแล้ว แต่ส่งลิงก์ดาวน์โหลดไม่สำเร็จ
+|
+| DOWNLOAD_SENT
+|   ส่งลิงก์ดาวน์โหลดทาง LINE สำเร็จแล้ว
+|
+| NO_JACKET_REQUIRED
+|   ชำระแล้ว แต่ payment_order อยู่นอกลำดับ 1–50
+|--------------------------------------------------------------------------
+*/
+
 function getFulfillmentStatus(item) {
-  const paymentStatus = normalize(item.payment_status);
-  const accountStatus = normalize(item.account_status);
+  const paymentStatus =
+    normalize(item.payment_status);
+
+  const accountStatus =
+    normalize(item.account_status);
+
+  const paymentVerified =
+    item.payment_verified === true;
+
   const isPaid =
-    paymentStatus === "APPROVED" ||
+    (
+      paymentStatus === "APPROVED" &&
+      paymentVerified
+    ) ||
     accountStatus === "ACTIVE";
 
   if (!isPaid) {
     return "NOT_APPLICABLE";
   }
 
-  const bookingOrder = Number(item.booking_order || 0);
-  const hasJacketRight =
-    bookingOrder >= 1 &&
-    bookingOrder <= 50;
+  /*
+    สำคัญ:
+    สิทธิ์เสื้อใช้ payment_order
+    ไม่ใช่ booking_order
+  */
+  const paymentOrder =
+    Number(item.payment_order || 0);
 
-  const jacket = item.jacket_order || null;
+  const hasJacketRight =
+    paymentOrder >= JACKET_FIRST_ORDER &&
+    paymentOrder <= JACKET_LAST_ORDER;
+
+  const jacket =
+    item.jacket_order || null;
 
   if (!hasJacketRight) {
     return "NO_JACKET_REQUIRED";
@@ -87,9 +145,11 @@ function getFulfillmentStatus(item) {
     return "WAIT_JACKET_SELECTION";
   }
 
-  const messageStatus = normalize(
-    jacket.download_message_status || "PENDING"
-  );
+  const messageStatus =
+    normalize(
+      jacket.download_message_status ||
+      "PENDING"
+    );
 
   if (messageStatus === "SENT") {
     return "DOWNLOAD_SENT";
@@ -102,7 +162,10 @@ function getFulfillmentStatus(item) {
   return "DOWNLOAD_PENDING";
 }
 
-module.exports = function paymentInviteRoutes({ supabase }) {
+module.exports =
+function paymentInviteRoutes({
+  supabase
+}) {
   router.get("/list", async (req, res) => {
     try {
       if (!checkAdminKey(req)) {
@@ -114,10 +177,7 @@ module.exports = function paymentInviteRoutes({ supabase }) {
 
       /*
        * ดึง reservations และ jacket_orders แยกกัน
-       * แล้ว JOIN ใน Node.js
-       *
-       * วิธีนี้ชัวร์กว่า Supabase embedded select
-       * เพราะไม่ต้องพึ่งชื่อ Foreign Key relation
+       * แล้ว JOIN ด้วย reservation_id ใน Node.js
        */
 
       const [
@@ -130,11 +190,14 @@ module.exports = function paymentInviteRoutes({ supabase }) {
             id,
             booking_no,
             booking_order,
+            payment_order,
+
             full_name,
             phone,
             email,
             facebook_account,
             line_user_id,
+
             early_bird,
             price,
             status,
@@ -167,7 +230,10 @@ module.exports = function paymentInviteRoutes({ supabase }) {
             download_count,
             last_download_at
           `)
-          .order("created_at", { ascending: true }),
+          .order(
+            "created_at",
+            { ascending: true }
+          ),
 
         supabase
           .from("jacket_orders")
@@ -175,11 +241,13 @@ module.exports = function paymentInviteRoutes({ supabase }) {
             id,
             reservation_id,
             booking_no,
+
             jacket_color,
             jacket_size,
             jacket_status,
             submitted_at,
             updated_at,
+
             download_message_status,
             download_message_sent_at,
             download_message_error,
@@ -195,177 +263,276 @@ module.exports = function paymentInviteRoutes({ supabase }) {
         throw jacketResult.error;
       }
 
-      const reservations = reservationResult.data || [];
-      const jacketOrders = jacketResult.data || [];
+      const reservations =
+        reservationResult.data || [];
+
+      const jacketOrders =
+        jacketResult.data || [];
 
       /*
-       * ทำ Map ด้วย reservation_id
-       * เพราะเป็น key ที่แม่นกว่าการใช้ booking_no
+       * Map ด้วย reservation_id
+       * เพื่อให้เชื่อมข้อมูลได้แม่นกว่าการใช้ booking_no
        */
+
       const jacketMap = new Map();
 
       jacketOrders.forEach((jacket) => {
-        if (!jacket.reservation_id) return;
+        if (!jacket.reservation_id) {
+          return;
+        }
 
         jacketMap.set(
           String(jacket.reservation_id),
           {
             ...jacket,
-            jacket_status: normalize(jacket.jacket_status),
-            download_message_status: normalize(
-              jacket.download_message_status || "PENDING"
-            ),
-            download_message_retry_count: Number(
-              jacket.download_message_retry_count || 0
-            )
+
+            jacket_status:
+              normalize(
+                jacket.jacket_status
+              ),
+
+            download_message_status:
+              normalize(
+                jacket.download_message_status ||
+                "PENDING"
+              ),
+
+            download_message_retry_count:
+              Number(
+                jacket.download_message_retry_count ||
+                0
+              )
           }
         );
       });
 
-      const items = reservations.map((item) => {
-        const jacketOrder =
-          jacketMap.get(String(item.id)) || null;
+      const items =
+        reservations.map((item) => {
+          const jacketOrder =
+            jacketMap.get(
+              String(item.id)
+            ) || null;
 
-        const normalizedItem = {
-          ...item,
+          const normalizedItem = {
+            ...item,
 
-          status: normalize(item.status),
-          payment_status: normalize(item.payment_status),
-          account_status: normalize(item.account_status),
-          license_status: normalize(item.license_status),
+            booking_order:
+              item.booking_order === null ||
+              item.booking_order === undefined
+                ? null
+                : Number(
+                    item.booking_order
+                  ),
 
-          payment_invite_sent:
-            item.payment_invite_sent === true,
+            payment_order:
+              item.payment_order === null ||
+              item.payment_order === undefined
+                ? null
+                : Number(
+                    item.payment_order
+                  ),
 
-          days_left:
-            getDaysLeft(item.early_bird_payment_deadline),
+            status:
+              normalize(item.status),
 
-          jacket_order: jacketOrder,
+            payment_status:
+              normalize(
+                item.payment_status
+              ),
 
-          has_jacket_order:
-            jacketOrder !== null,
+            account_status:
+              normalize(
+                item.account_status
+              ),
 
-          jacket_status:
-            jacketOrder?.jacket_status || null,
+            license_status:
+              normalize(
+                item.license_status
+              ),
 
-          jacket_color:
-            jacketOrder?.jacket_color || null,
+            payment_verified:
+              item.payment_verified === true,
 
-          jacket_size:
-            jacketOrder?.jacket_size || null,
+            payment_invite_sent:
+              item.payment_invite_sent === true,
 
-          jacket_submitted_at:
-            jacketOrder?.submitted_at || null,
+            days_left:
+              getDaysLeft(
+                item.early_bird_payment_deadline
+              ),
 
-          download_message_status:
-            jacketOrder?.download_message_status || null,
+            jacket_order:
+              jacketOrder,
 
-          download_message_sent_at:
-            jacketOrder?.download_message_sent_at || null,
+            has_jacket_order:
+              jacketOrder !== null,
 
-          download_message_error:
-            jacketOrder?.download_message_error || null,
+            jacket_status:
+              jacketOrder?.jacket_status ||
+              null,
 
-          download_message_retry_count:
-            jacketOrder?.download_message_retry_count || 0
-        };
+            jacket_color:
+              jacketOrder?.jacket_color ||
+              null,
 
-        return {
-          ...normalizedItem,
+            jacket_size:
+              jacketOrder?.jacket_size ||
+              null,
 
-          dashboard_status:
-            getDashboardStatus(normalizedItem),
+            jacket_submitted_at:
+              jacketOrder?.submitted_at ||
+              null,
 
-          fulfillment_status:
-            getFulfillmentStatus(normalizedItem)
-        };
-      });
+            download_message_status:
+              jacketOrder
+                ?.download_message_status ||
+              null,
+
+            download_message_sent_at:
+              jacketOrder
+                ?.download_message_sent_at ||
+              null,
+
+            download_message_error:
+              jacketOrder
+                ?.download_message_error ||
+              null,
+
+            download_message_retry_count:
+              Number(
+                jacketOrder
+                  ?.download_message_retry_count ||
+                0
+              )
+          };
+
+          return {
+            ...normalizedItem,
+
+            dashboard_status:
+              getDashboardStatus(
+                normalizedItem
+              ),
+
+            fulfillment_status:
+              getFulfillmentStatus(
+                normalizedItem
+              )
+          };
+        });
 
       const summary = {
-        total: items.length,
+        total:
+          items.length,
 
-        not_sent: items.filter(
-          (item) =>
-            item.dashboard_status === "NOT_SENT"
-        ).length,
+        not_sent:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "NOT_SENT"
+          ).length,
 
-        wait_payment: items.filter(
-          (item) =>
-            item.dashboard_status === "WAIT_PAYMENT" ||
-            item.dashboard_status === "EXPIRED"
-        ).length,
+        wait_payment:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+                "WAIT_PAYMENT" ||
+              item.dashboard_status ===
+                "EXPIRED"
+          ).length,
 
-        payment_review: items.filter(
-          (item) =>
-            item.dashboard_status === "PAYMENT_REVIEW"
-        ).length,
+        payment_review:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "PAYMENT_REVIEW"
+          ).length,
 
-        approved: items.filter(
-          (item) =>
-            item.dashboard_status === "APPROVED"
-        ).length,
+        approved:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "APPROVED"
+          ).length,
 
-        rejected: items.filter(
-          (item) =>
-            item.dashboard_status === "REJECTED"
-        ).length,
+        rejected:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "REJECTED"
+          ).length,
 
-        active: items.filter(
-          (item) =>
-            item.dashboard_status === "ACTIVE"
-        ).length,
+        active:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "ACTIVE"
+          ).length,
 
-        expired: items.filter(
-          (item) =>
-            item.dashboard_status === "EXPIRED"
-        ).length,
+        expired:
+          items.filter(
+            (item) =>
+              item.dashboard_status ===
+              "EXPIRED"
+          ).length,
 
         /*
-         * สรุปสถานะหลังการชำระเงิน
+         * สรุปสถานะหลังชำระเงิน
          */
-        wait_jacket_selection: items.filter(
-          (item) =>
-            item.fulfillment_status ===
-            "WAIT_JACKET_SELECTION"
-        ).length,
 
-        download_pending: items.filter(
-          (item) =>
-            item.fulfillment_status ===
-            "DOWNLOAD_PENDING"
-        ).length,
+        wait_jacket_selection:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "WAIT_JACKET_SELECTION"
+          ).length,
 
-        download_failed: items.filter(
-          (item) =>
-            item.fulfillment_status ===
-            "DOWNLOAD_FAILED"
-        ).length,
+        download_pending:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "DOWNLOAD_PENDING"
+          ).length,
 
-        download_sent: items.filter(
-          (item) =>
-            item.fulfillment_status ===
-            "DOWNLOAD_SENT"
-        ).length,
+        download_failed:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "DOWNLOAD_FAILED"
+          ).length,
 
-        no_jacket_required: items.filter(
-          (item) =>
-            item.fulfillment_status ===
-            "NO_JACKET_REQUIRED"
-        ).length
+        download_sent:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "DOWNLOAD_SENT"
+          ).length,
+
+        no_jacket_required:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "NO_JACKET_REQUIRED"
+          ).length
       };
 
-      return res.json({
+      return res.status(200).json({
         success: true,
         summary,
         items
       });
 
     } catch (err) {
-      console.error("Payment invite list error:", err);
+      console.error(
+        "Payment invite list error:",
+        err
+      );
 
       return res.status(500).json({
         success: false,
-        message: err.message
+        message:
+          err?.message ||
+          "Cannot load payment dashboard"
       });
     }
   });
