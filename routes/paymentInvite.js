@@ -96,6 +96,10 @@ function getDashboardStatus(item) {
 | DOWNLOAD_SENT
 |   ส่งลิงก์ดาวน์โหลดทาง LINE สำเร็จแล้ว
 |
+| PROGRAM_ACTIVATED
+|   มีข้อมูลเสื้อแล้ว และ account_status เป็น ACTIVE
+|   ถือว่าได้รับโปรแกรมแล้ว แม้ส่งนอกระบบ
+|
 | NO_JACKET_REQUIRED
 |   ชำระแล้ว แต่ payment_order อยู่นอกลำดับ 1–50
 |--------------------------------------------------------------------------
@@ -143,6 +147,16 @@ function getFulfillmentStatus(item) {
 
   if (!jacket) {
     return "WAIT_JACKET_SELECTION";
+  }
+
+  /*
+    หากมีข้อมูลเสื้อแล้ว และบัญชีถูกเปิดใช้งานแล้ว
+    ถือว่าลูกค้าได้รับโปรแกรมเรียบร้อยแล้ว
+    แม้ download_message_status จะยังเป็น PENDING
+    เพราะผู้ดูแลอาจส่งไฟล์ให้นอกระบบ
+  */
+  if (accountStatus === "ACTIVE") {
+    return "PROGRAM_ACTIVATED";
   }
 
   const messageStatus =
@@ -506,6 +520,13 @@ function paymentInviteRoutes({
             (item) =>
               item.fulfillment_status ===
               "DOWNLOAD_SENT"
+          ).length,
+
+        program_activated:
+          items.filter(
+            (item) =>
+              item.fulfillment_status ===
+              "PROGRAM_ACTIVATED"
           ).length,
 
         no_jacket_required:
