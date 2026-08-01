@@ -10,6 +10,9 @@ const paymentInviteRoutes =
 const paymentSubmitRoutes =
   require("./routes/paymentSubmit");
 
+const jacketOrderRoutes =
+  require("./routes/jacket-order");
+
 const professionalNewsRoutes =
   require("./routes/professionalNews");
 
@@ -61,6 +64,15 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+/*
+|--------------------------------------------------------------------------
+| Shared application services
+|--------------------------------------------------------------------------
+| routes/jacket-order.js reads Supabase from req.app.locals.supabase
+|--------------------------------------------------------------------------
+*/
+app.locals.supabase = supabase;
 
 function isAllowedAdmin(userId) {
   const allowedAdminUserId =
@@ -1579,6 +1591,19 @@ app.use(
     supabase,
     adminLineClient
   })
+);
+
+/*
+|--------------------------------------------------------------------------
+| Jacket order
+|--------------------------------------------------------------------------
+| Full endpoint:
+| POST /api/payment/jacket-order
+|--------------------------------------------------------------------------
+*/
+app.use(
+  "/api/payment",
+  jacketOrderRoutes
 );
 
 const PORT =
