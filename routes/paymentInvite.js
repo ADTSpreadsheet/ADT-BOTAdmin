@@ -211,6 +211,9 @@ function paymentInviteRoutes({
             email,
             facebook_account,
             line_user_id,
+            line_status,
+            followed_at,
+            blocked_at,
 
             early_bird,
             price,
@@ -329,6 +332,17 @@ function paymentInviteRoutes({
 
           const normalizedItem = {
             ...item,
+
+            line_status:
+              normalize(
+                item.line_status
+              ),
+
+            followed_at:
+              item.followed_at || null,
+
+            blocked_at:
+              item.blocked_at || null,
 
             booking_order:
               item.booking_order === null ||
@@ -534,6 +548,45 @@ function paymentInviteRoutes({
             (item) =>
               item.fulfillment_status ===
               "NO_JACKET_REQUIRED"
+          ).length,
+
+        /*
+         * สรุปสถานะ LINE
+         */
+
+        line_active:
+          items.filter(
+            (item) =>
+              item.line_status ===
+              "ACTIVE"
+          ).length,
+
+        line_blocked:
+          items.filter(
+            (item) =>
+              item.line_status ===
+                "BLOCKED" ||
+              item.line_status ===
+                "UNFOLLOWED"
+          ).length,
+
+        line_unknown:
+          items.filter(
+            (item) =>
+              !item.line_status ||
+              ![
+                "ACTIVE",
+                "BLOCKED",
+                "UNFOLLOWED"
+              ].includes(
+                item.line_status
+              )
+          ).length,
+
+        line_user_id_missing:
+          items.filter(
+            (item) =>
+              !item.line_user_id
           ).length
       };
 
