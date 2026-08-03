@@ -5,6 +5,26 @@ const router = express.Router();
 const JACKET_FIRST_ORDER = 1;
 const JACKET_LAST_ORDER = 50;
 
+/*
+|--------------------------------------------------------------------------
+| EARLY BIRD CAMPAIGN
+|--------------------------------------------------------------------------
+|
+| เริ่มนับสิทธิ์พร้อมกันทุกคน: 1 สิงหาคม 2569
+| สิ้นสุดราคา 3,500 บาท: 7 สิงหาคม 2569 เวลา 23:59:59 น.
+| ตั้งแต่ 8 สิงหาคม 2569 เป็นต้นไป ให้ระบบ Payment ปรับเป็น 4,999 บาท
+|
+| หมายเหตุ:
+| ไฟล์นี้ใช้วันกลางของแคมเปญสำหรับ Dashboard และการนับวันคงเหลือ
+|--------------------------------------------------------------------------
+*/
+
+const EARLY_BIRD_START =
+  new Date("2026-08-01T00:00:00+07:00");
+
+const EARLY_BIRD_DEADLINE =
+  new Date("2026-08-07T23:59:59.999+07:00");
+
 function checkAdminKey(req) {
   const key =
     req.query.key ||
@@ -23,12 +43,32 @@ function normalize(value) {
     .toUpperCase();
 }
 
-function getDaysLeft(deadline) {
-  if (!deadline) return null;
+function isEarlyBirdExpired() {
+  return (
+    Date.now() >
+    EARLY_BIRD_DEADLINE.getTime()
+  );
+}
+
+function getDaysLeft() {
+  const now = Date.now();
+
+  /*
+    ก่อนเริ่มแคมเปญ ให้แสดง 7 วัน
+    ระหว่าง 1–7 สิงหาคม ให้นับถอยหลังจากวันสิ้นสุดกลาง
+    หลังหมดเขต ให้คืนค่า -1 เพื่อให้หน้าเว็บแสดง "หมดสิทธิ์แล้ว"
+  */
+  if (now < EARLY_BIRD_START.getTime()) {
+    return 7;
+  }
 
   const diff =
-    new Date(deadline).getTime() -
-    Date.now();
+    EARLY_BIRD_DEADLINE.getTime() -
+    now;
+
+  if (diff < 0) {
+    return -1;
+  }
 
   return Math.ceil(
     diff / (1000 * 60 * 60 * 24)
@@ -60,10 +100,7 @@ function getDashboardStatus(item) {
 
   if (
     item.payment_invite_sent === true &&
-    item.early_bird_payment_deadline &&
-    new Date(
-      item.early_bird_payment_deadline
-    ).getTime() < Date.now()
+    isEarlyBirdExpired()
   ) {
     return "EXPIRED";
   }
@@ -385,9 +422,7 @@ function paymentInviteRoutes({
               item.payment_invite_sent === true,
 
             days_left:
-              getDaysLeft(
-                item.early_bird_payment_deadline
-              ),
+              getDaysLeft(),
 
             jacket_order:
               jacketOrder,
