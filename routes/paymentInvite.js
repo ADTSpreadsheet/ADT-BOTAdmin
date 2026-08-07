@@ -282,7 +282,14 @@ function paymentInviteRoutes({
 
             download_token,
             download_count,
-            last_download_at
+            last_download_at,
+
+            rights_status,
+            extension_requested_at,
+            extension_deadline,
+            extension_count,
+            rights_cancelled_at,
+            rights_action_updated_at
           `)
           .order(
             "created_at",
@@ -466,7 +473,35 @@ function paymentInviteRoutes({
                 jacketOrder
                   ?.download_message_retry_count ||
                 0
-              )
+              ),
+
+            rights_status:
+              normalize(
+                item.rights_status ||
+                "NONE"
+              ),
+
+            extension_requested_at:
+              item.extension_requested_at ||
+              null,
+
+            extension_deadline:
+              item.extension_deadline ||
+              null,
+
+            extension_count:
+              Number(
+                item.extension_count ||
+                0
+              ),
+
+            rights_cancelled_at:
+              item.rights_cancelled_at ||
+              null,
+
+            rights_action_updated_at:
+              item.rights_action_updated_at ||
+              null
           };
 
           return {
