@@ -235,6 +235,57 @@ function safeObject(value) {
   return {};
 }
 
+
+function checkRightsReportSecret(req) {
+  const receivedSecret =
+    String(
+      req.headers["x-admin-secret"] ||
+      req.body?.secret ||
+      ""
+    ).trim();
+
+  const expectedSecret =
+    String(
+      process.env.RIGHTS_REPORT_SECRET ||
+      process.env.ADMIN_SECRET_KEY ||
+      ""
+    ).trim();
+
+  return (
+    expectedSecret &&
+    receivedSecret &&
+    receivedSecret === expectedSecret
+  );
+}
+
+function formatBaht(value) {
+  const number = Number(value || 0);
+
+  return Number.isFinite(number)
+    ? number.toLocaleString("th-TH")
+    : "0";
+}
+
+function formatBangkokDateTime(value) {
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString(
+    "th-TH",
+    {
+      timeZone: "Asia/Bangkok",
+      dateStyle: "medium",
+      timeStyle: "short"
+    }
+  );
+}
+
 function getDeviceCount(summary, key) {
   const object = safeObject(summary);
 
@@ -1303,6 +1354,165 @@ app.use(
   professionalUpdateRoutes({
     supabase
   })
+);
+
+
+/* =========================================================
+   PAYMENT RIGHTS REPORT
+
+   รับรายงานจาก ADT-LineBot-PileFix เมื่อผู้ใช้เลือก:
+   - EXTENDED  = ขอรักษาสิทธิ์ 7 วัน
+   - CANCELLED = ยกเลิกสิทธิ์
+
+   หมายเหตุ:
+   - ไม่รายงาน PAYMENT_CLICKED เพราะระบบสลิปเดิมมีแจ้งอยู่แล้ว
+   - ส่งเข้า LINE Admin Group ด้วย Admin Bot
+========================================================= */
+
+app.post(
+  "/api/payment-rights-report",
+
+  async (req, res) => {
+    try {
+      if (!checkRightsReportSecret(req)) {
+        return res.status(403).json({
+          success: false,
+          message: "FORBIDDEN"
+        });
+      }
+
+      const {
+        action,
+        booking_no,
+        full_name,
+        phone,
+        price,
+        extension_deadline,
+        extension_count,
+        action_at
+      } = req.body || {};
+
+      const normalizedAction =
+        String(action || "")
+          .trim()
+          .toUpperCase();
+
+      const bookingNo =
+        String(booking_no || "")
+          .trim()
+          .toUpperCase();
+
+      if (
+        !["EXTENDED", "CANCELLED"].includes(
+          normalizedAction
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "action must be EXTENDED or CANCELLED"
+        });
+      }
+
+      if (!bookingNo) {
+        return res.status(400).json({
+          success: false,
+          message: "booking_no is required"
+        });
+      }
+
+      const groupId =
+        String(
+          process.env.LINE_ADMIN_GROUP_ID ||
+          ""
+        ).trim();
+
+      if (!groupId) {
+        return res.status(500).json({
+          success: false,
+          message:
+            "LINE_ADMIN_GROUP_ID is missing"
+        });
+      }
+
+      const actionDateTime =
+        formatBangkokDateTime(
+          action_at ||
+          new Date()
+        );
+
+      let reportText = "";
+
+      if (normalizedAction === "EXTENDED") {
+        const deadlineText =
+          formatBangkokDateTime(
+            extension_deadline
+          );
+
+        const extensionCount =
+          Number(extension_count || 1);
+
+        reportText =
+          `🟡 ADT PileFix | ขอรักษาสิทธิ์\n\n` +
+          `ลูกค้าได้กด "ขอรักษาสิทธิ์ 7 วัน"\n\n` +
+          `👤 ชื่อ : ${full_name || "-"}\n` +
+          `📋 หมายเลขจอง : ${bookingNo}\n` +
+          `📞 โทร : ${phone || "-"}\n` +
+          `💳 ราคา : ${formatBaht(price || 3500)} บาท\n\n` +
+          `📅 สิทธิ์ใหม่ถึง : ${deadlineText}\n` +
+          `🔁 ขอขยายครั้งที่ : ${extensionCount}\n\n` +
+          `🕒 เวลา : ${actionDateTime}`;
+      }
+
+      if (normalizedAction === "CANCELLED") {
+        reportText =
+          `🔴 ADT PileFix | ยกเลิกสิทธิ์\n\n` +
+          `ลูกค้าแจ้งไม่ประสงค์ใช้สิทธิ์ Early Bird\n\n` +
+          `👤 ชื่อ : ${full_name || "-"}\n` +
+          `📋 หมายเลขจอง : ${bookingNo}\n` +
+          `📞 โทร : ${phone || "-"}\n` +
+          `💳 ราคาเดิม : ${formatBaht(price || 3500)} บาท\n\n` +
+          `สถานะถูกบันทึกเรียบร้อยแล้ว\n\n` +
+          `🕒 เวลา : ${actionDateTime}`;
+      }
+
+      const pushResult =
+        await pushLineMessageWithRetry(
+          groupId,
+          {
+            type: "text",
+            text: reportText
+          },
+          `rights-${normalizedAction}-${bookingNo}`
+        );
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "Payment rights report sent",
+        action: normalizedAction,
+        booking_no: bookingNo,
+        attempt: pushResult.attempt
+      });
+
+    } catch (err) {
+      const errorDetail =
+        err?.originalError?.response?.data ||
+        err?.message ||
+        err;
+
+      console.error(
+        "Payment rights report error:",
+        errorDetail
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Cannot send payment rights report"
+      });
+    }
+  }
 );
 
 app.post(
