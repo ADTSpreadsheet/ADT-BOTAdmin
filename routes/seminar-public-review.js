@@ -152,12 +152,35 @@ module.exports = function seminarPublicReviewRoutes({
 
     return String(
       process.env.ADT_WEBSITE_API_URL ||
-      ""
+      "https://adt-website-api.onrender.com"
     )
+      .trim()
       .replace(
         /\/+$/,
         ""
       );
+  }
+
+
+  function isValidHttpsUrl(value) {
+
+    try {
+
+      const url =
+        new URL(
+          String(value || "")
+        );
+
+      return (
+        url.protocol === "https:" &&
+        Boolean(url.hostname)
+      );
+
+    }
+    catch (error) {
+
+      return false;
+    }
   }
 
 
@@ -170,19 +193,34 @@ module.exports = function seminarPublicReviewRoutes({
 
     const key =
       encodeURIComponent(
-        process.env.BOT_ADMIN_API_SECRET ||
-        ""
+        String(
+          process.env.BOT_ADMIN_API_SECRET ||
+          process.env.BOT_API_SECRET ||
+          ""
+        ).trim()
       );
 
 
-    return (
-      `${base}` +
-      `/api/seminar/public/view-slip` +
-      `?registration_id=${encodeURIComponent(
-        registrationId
-      )}` +
-      `&key=${key}`
-    );
+    const url =
+      (
+        `${base}` +
+        `/api/seminar/public/view-slip` +
+        `?registration_id=${encodeURIComponent(
+          registrationId
+        )}` +
+        `&key=${key}`
+      );
+
+
+    if (!isValidHttpsUrl(url)) {
+
+      throw new Error(
+        `INVALID_VIEW_SLIP_URL: ${url}`
+      );
+    }
+
+
+    return url;
   }
 
 
@@ -194,24 +232,40 @@ module.exports = function seminarPublicReviewRoutes({
     const base =
       getWebsiteApiBaseUrl();
 
-    const key =
-      encodeURIComponent(
+    const rawSecret =
+      String(
         process.env.SEMINAR_ADMIN_ACTION_SECRET ||
+        process.env.BOT_ADMIN_API_SECRET ||
+        process.env.BOT_API_SECRET ||
         ""
+      ).trim();
+
+
+    const url =
+      (
+        `${base}` +
+        `/api/seminar/public/admin/payment-action` +
+        `?registration_id=${encodeURIComponent(
+          registrationId
+        )}` +
+        `&action=${encodeURIComponent(
+          action
+        )}` +
+        `&key=${encodeURIComponent(
+          rawSecret
+        )}`
       );
 
 
-    return (
-      `${base}` +
-      `/api/seminar/public/admin/payment-action` +
-      `?registration_id=${encodeURIComponent(
-        registrationId
-      )}` +
-      `&action=${encodeURIComponent(
-        action
-      )}` +
-      `&key=${key}`
-    );
+    if (!isValidHttpsUrl(url)) {
+
+      throw new Error(
+        `INVALID_ADMIN_ACTION_URL: ${url}`
+      );
+    }
+
+
+    return url;
   }
 
 
@@ -597,6 +651,58 @@ module.exports = function seminarPublicReviewRoutes({
         }
 
 
+        const websiteApiBaseUrl =
+          getWebsiteApiBaseUrl();
+
+        if (
+          !isValidHttpsUrl(
+            websiteApiBaseUrl
+          )
+        ) {
+
+          console.error(
+            "[SEMINAR ADMIN] Invalid ADT_WEBSITE_API_URL:",
+            websiteApiBaseUrl
+          );
+
+          return res
+            .status(500)
+            .json({
+              success:
+                false,
+
+              message:
+                "INVALID_ADT_WEBSITE_API_URL"
+            });
+        }
+
+
+        const actionSecret =
+          String(
+            process.env.SEMINAR_ADMIN_ACTION_SECRET ||
+            process.env.BOT_ADMIN_API_SECRET ||
+            process.env.BOT_API_SECRET ||
+            ""
+          ).trim();
+
+        if (!actionSecret) {
+
+          console.error(
+            "[SEMINAR ADMIN] Admin action secret missing"
+          );
+
+          return res
+            .status(500)
+            .json({
+              success:
+                false,
+
+              message:
+                "ADMIN_ACTION_SECRET_MISSING"
+            });
+        }
+
+
         const registrationId =
           String(
             req.body?.registration_id ||
@@ -789,6 +895,29 @@ module.exports = function seminarPublicReviewRoutes({
             amount:
               displayAmount
           });
+
+
+        console.log(
+          "[SEMINAR ADMIN] Flex URLs ready:",
+          {
+            viewSlipUrl:
+              buildViewSlipUrl(
+                registration.id
+              ),
+
+            approveUrl:
+              buildActionUrl(
+                "AP",
+                registration.id
+              ),
+
+            rejectUrl:
+              buildActionUrl(
+                "RJ",
+                registration.id
+              )
+          }
+        );
 
 
         const adminGroupId =
