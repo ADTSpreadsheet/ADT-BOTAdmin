@@ -22,6 +22,9 @@ const professionalUpdateRoutes =
 const professionalSupportAdminRoutes =
   require("./routes/professionalSupportAdmin");
 
+const seminarPublicReviewRoutes =
+  require("./routes/seminar-public-review");
+
 const app = express();
 
 const adminLineConfig = {
@@ -62,6 +65,31 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+/*
+  Seminar Public ใช้ฐาน ADT-Website
+  แยก client จากฐานเดิมของ BOTAdmin
+*/
+if (!process.env.SEMINAR_SUPABASE_URL) {
+  throw new Error("Missing SEMINAR_SUPABASE_URL");
+}
+
+if (!process.env.SEMINAR_SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error(
+    "Missing SEMINAR_SUPABASE_SERVICE_ROLE_KEY"
+  );
+}
+
+const seminarSupabase = createClient(
+  process.env.SEMINAR_SUPABASE_URL,
+  process.env.SEMINAR_SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    }
+  }
+);
+
 function isAllowedAdmin(userId) {
   const allowedAdminUserId =
     String(
@@ -87,7 +115,7 @@ app.use((req, res, next) => {
 
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type,X-Cron-Secret,X-Admin-Secret"
+    "Content-Type,X-Cron-Secret,X-Admin-Secret,X-Admin-API-Secret"
   );
 
   if (req.method === "OPTIONS") {
@@ -1337,6 +1365,30 @@ app.use(
   })
 );
 
+
+/* =========================================================
+   SEMINAR PUBLIC : ADMIN REVIEW
+
+   รับ Request จาก ADT Website API เมื่อ OCR ไม่ชัวร์
+   POST /api/seminar/public/review
+
+   ดูสลิป:
+   GET /api/seminar/public/view-slip
+
+   Health:
+   GET /api/seminar/public/health
+========================================================= */
+
+app.use(
+  "/api/seminar/public",
+
+  seminarPublicReviewRoutes({
+    seminarSupabase,
+    adminLineClient
+  })
+);
+
+
 app.use(
   "/api/admin/professional",
   professionalNewsRoutes
@@ -1797,5 +1849,9 @@ const PORT =
 app.listen(PORT, () => {
   console.log(
     `ADT BOTAdmin running on port ${PORT}`
+  );
+
+  console.log(
+    "Seminar Public Admin Review : Enabled"
   );
 });
